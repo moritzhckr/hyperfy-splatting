@@ -1,5 +1,6 @@
 import * as THREE from '../extras/three'
 import { isNumber } from 'lodash-es'
+import { SplatMesh } from '@sparkjsdev/spark'
 
 import { System } from './System'
 import { LooseOctree } from '../extras/LooseOctree'
@@ -20,6 +21,7 @@ export class Stage extends System {
     super(world)
     this.scene = new THREE.Scene()
     this.models = new Map() // id -> Model
+    this.splatMeshes = new Map() // id -> SplatMesh instances
     this.octree = new LooseOctree({
       scene: this.scene,
       center: new THREE.Vector3(0, 0, 0),
@@ -257,8 +259,80 @@ export class Stage extends System {
     return this.raycastHits
   }
 
+  insertGaussianSplat({ url, node, matrix, splatScale = 1.0, opacity = 1.0, sphericalHarmonics = true, sortMode = 'auto' }) {
+    console.log('🔥 Creating Spark.js SplatMesh for URL:', url)
+    
+    try {
+      // Create Spark.js SplatMesh directly
+      const splatMesh = new SplatMesh({ 
+        url: url,
+        alphaTest: 0.1
+      })
+      
+      // Apply transform matrix
+      splatMesh.matrixAutoUpdate = false
+      splatMesh.matrix.copy(matrix)
+      splatMesh.matrixWorldNeedsUpdate = true
+      
+      // Apply scale
+      splatMesh.scale.setScalar(splatScale)
+      
+      // Set opacity if material is available
+      if (splatMesh.material) {
+        splatMesh.material.opacity = opacity
+        splatMesh.material.transparent = opacity < 1.0
+      }
+      
+      // Add to scene
+      this.scene.add(splatMesh)
+      
+      // Store reference
+      const id = node.id || `splat_${Date.now()}`
+      this.splatMeshes.set(id, splatMesh)
+      
+      console.log('✅ Spark.js SplatMesh added to scene')
+      
+      // Return handle
+      return {
+        splatMesh,
+        move: (newMatrix) => {
+          splatMesh.matrix.copy(newMatrix)
+          splatMesh.matrixWorldNeedsUpdate = true
+        },
+        updateScale: (scale) => {
+          splatMesh.scale.setScalar(scale)
+        },
+        updateOpacity: (opacity) => {
+          if (splatMesh.material) {
+            splatMesh.material.opacity = opacity
+            splatMesh.material.transparent = opacity < 1.0
+          }
+        },
+        destroy: () => {
+          this.scene.remove(splatMesh)
+          this.splatMeshes.delete(id)
+          if (splatMesh.dispose) {
+            splatMesh.dispose()
+          }
+        }
+      }
+      
+    } catch (error) {
+      console.error('❌ Failed to create Spark.js SplatMesh:', error)
+      return null
+    }
+  }
+
   destroy() {
     this.models.clear()
+    // Clean up splat meshes
+    for (const [id, splatMesh] of this.splatMeshes) {
+      this.scene.remove(splatMesh)
+      if (splatMesh.dispose) {
+        splatMesh.dispose()
+      }
+    }
+    this.splatMeshes.clear()
   }
 }
 

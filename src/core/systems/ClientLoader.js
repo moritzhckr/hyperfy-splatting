@@ -237,6 +237,28 @@ export class ClientLoader extends System {
         this.results.set(key, audioBuffer)
         return audioBuffer
       }
+      if (type === 'splat') {
+        // For splat files, Spark.js handles loading directly from URL
+        // We just store the file reference for the URL resolver
+        const splatData = {
+          file,
+          url,
+          size: file.size,
+          format: file.name.split('.').pop().toLowerCase(),
+          toSplatData() {
+            // This will be handled by Spark.js directly
+            return { file, url }
+          },
+          getStats() {
+            return {
+              fileBytes: file.size,
+              format: file.name.split('.').pop().toLowerCase()
+            }
+          }
+        }
+        this.results.set(key, splatData)
+        return splatData
+      }
     })
     this.promises.set(key, promise)
     return promise
@@ -354,6 +376,30 @@ export class ClientLoader extends System {
         } catch (err) {
           reject(err)
         }
+      })
+    }
+    if (type === 'splat') {
+      // For splat files, create a simple promise that resolves to file info
+      promise = Promise.resolve().then(() => {
+        const splatData = {
+          file,
+          url,
+          localUrl,
+          size: file.size,
+          format: file.name.split('.').pop().toLowerCase(),
+          toSplatData() {
+            // This will be handled by Spark.js directly
+            return { file, url, localUrl }
+          },
+          getStats() {
+            return {
+              fileBytes: file.size,
+              format: file.name.split('.').pop().toLowerCase()
+            }
+          }
+        }
+        this.results.set(key, splatData)
+        return splatData
       })
     }
     this.promises.set(key, promise)

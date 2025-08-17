@@ -759,6 +759,206 @@ export class ClientBuilder extends System {
       const canPlace = this.canBuild()
       this.addAvatar(file, transform, canPlace)
     }
+    if (ext === 'ply' || ext === 'splat' || ext === 'ksplat' || ext === 'spz') {
+      this.addSplat(file, transform)
+    }
+  }
+
+  async addSplat(file, transform) {
+    // immutable hash the file
+    const hash = await hashFile(file)
+    // preserve original extension for splat files
+    const ext = file.name.split('.').pop().toLowerCase()
+    const filename = `${hash}.${ext}`
+    // canonical url to this file
+    const url = `asset://${filename}`
+    
+    console.log('🔥 Adding Spark.js splat file:', { filename, url, size: file.size })
+    
+    // cache file locally so this client can insta-load it  
+    this.world.loader.insert('splat', url, file)
+    
+    // create control script for the splat (client-only)
+    const scriptContent = `/**
+ * Auto-generated Gaussian Splat Controls v2
+ * Interactive controls for splat parameters
+ * Fixed: Client-only execution and robust error handling
+ */
+
+// Only run on client - server doesn't have Spark.js or DOM APIs
+if (world.isClient) {
+
+app.configure([
+  {
+    key: 'splatScale',
+    type: 'range',
+    label: 'Splat Size',
+    initial: 1.0,
+    min: 0.1,
+    max: 5.0,
+    step: 0.1,
+    hint: 'Controls the overall size of all splats'
+  },
+  {
+    key: 'opacity',
+    type: 'range', 
+    label: 'Opacity',
+    initial: 1.0,
+    min: 0.0,
+    max: 1.0,
+    step: 0.01,
+    hint: 'Controls transparency of all splats'
+  },
+  {
+    key: 'sortMode',
+    type: 'select',
+    label: 'Sort Mode',
+    initial: 'auto',
+    options: [
+      { value: 'auto', label: 'Auto' },
+      { value: 'distance', label: 'Distance' },
+      { value: 'none', label: 'None' }
+    ],
+    hint: 'Splat sorting algorithm'
+  },
+  {
+    key: 'sphericalHarmonics',
+    type: 'toggle',
+    label: 'Spherical Harmonics',
+    initial: true,
+    hint: 'Enable advanced lighting (if available in file)'
+  }
+])
+
+// Find the gaussiansplat node created by the model loading
+let splatNode = null
+
+function findSplatNode() {
+  // Look for gaussiansplat in the app's children
+  function traverse(node) {
+    if (!node) return null
+    if (node.name === 'gaussiansplat') {
+      return node
+    }
+    // Check if node has children and iterate safely
+    if (node.children && Array.isArray(node.children)) {
+      for (const child of node.children) {
+        const found = traverse(child)
+        if (found) return found
+      }
+    }
+    return null
+  }
+  return traverse(app.root)
+}
+
+// Update properties in real-time
+let lastProps = {}
+function updateSplatProperties() {
+  try {
+    if (!splatNode) {
+      splatNode = findSplatNode()
+      if (!splatNode) return
+    }
+  
+  // Only update if properties actually changed to avoid spam
+  const currentProps = {
+    splatScale: props.splatScale,
+    opacity: props.opacity,
+    sortMode: props.sortMode,
+    sphericalHarmonics: props.sphericalHarmonics
+  }
+  
+  let hasChanges = false
+  for (const [key, value] of Object.entries(currentProps)) {
+    if (lastProps[key] !== value) {
+      hasChanges = true
+      splatNode[key] = value
+    }
+  }
+  
+    if (hasChanges) {
+      console.log('🎛️ Updated splat properties:', currentProps)
+      lastProps = { ...currentProps }
+    }
+  } catch (error) {
+    console.error('Error updating splat properties:', error)
+  }
+}
+
+app.on('update', () => {
+  updateSplatProperties()
+})
+
+} // end if (world.isClient)`
+    
+    const scriptHash = await hashFile(new Blob([scriptContent], { type: 'text/javascript' }))
+    const scriptFilename = `${scriptHash}.js`
+    const scriptUrl = `asset://${scriptFilename}`
+    
+    // cache script locally
+    this.world.loader.insert('script', scriptUrl, new File([scriptContent], scriptFilename, { type: 'text/javascript' }))
+    
+    // create blueprint with both model and script
+    const blueprint = {
+      id: uuid(),
+      version: 0,
+      name: file.name.split('.')[0],
+      image: null,
+      author: null,
+      url: null,
+      desc: null,
+      model: url, // splat file as model
+      script: scriptUrl, // control script for interactive parameters
+      props: {},
+      preload: false,
+      public: false,
+      locked: false,
+      unique: false,
+      scene: false,
+      disabled: false,
+    }
+    
+    // register blueprint
+    this.world.blueprints.add(blueprint, true)
+    
+    // create app entity with temporary uploader to prevent race condition
+    const tempUploaderId = `temp_${this.world.network.id}_${Date.now()}`
+    const data = {
+      id: uuid(),
+      type: 'app',
+      blueprint: blueprint.id,
+      position: transform.position,
+      quaternion: transform.quaternion,
+      scale: [1, 1, 1],
+      mover: null,
+      uploader: tempUploaderId, // temporary ID to prevent immediate loading
+      pinned: false,
+      state: {},
+    }
+    
+    const app = this.world.entities.add(data, true)
+    console.log('📤 Uploading splat file and control script...')
+    
+    try {
+      // upload both files in parallel
+      await Promise.all([
+        this.world.network.upload(file), // the splat file
+        this.world.network.upload(new File([scriptContent], scriptFilename, { type: 'text/javascript' })) // the control script
+      ])
+      
+      console.log('✅ Splat file and controls uploaded successfully')
+      
+      // mark as uploaded exactly like addModel does  
+      app.onUploaded()
+      
+      console.log('✅ Splat app with controls created successfully:', filename)
+      
+    } catch (err) {
+      console.error('❌ Failed to upload splat files:', err)
+      // clean up failed app
+      app.destroy()
+    }
   }
 
   async addApp(file, transform) {

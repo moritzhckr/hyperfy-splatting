@@ -73,15 +73,38 @@ export class App extends Entity {
     }
     // otherwise we can load the model and script
     else {
-      try {
-        const type = blueprint.model.endsWith('vrm') ? 'avatar' : 'model'
-        let glb = this.world.loader.get(type, blueprint.model)
-        if (!glb) glb = await this.world.loader.load(type, blueprint.model)
-        root = glb.toNodes()
-      } catch (err) {
-        console.error(err)
-        crashed = true
-        // no model, will use crash block below
+      // load model if present
+      if (blueprint.model && blueprint.model.trim() !== '') {
+        try {
+          // check if it's a splat file
+          if (blueprint.model.match(/\.(ply|splat|ksplat|spz)$/i)) {
+            // load splat data from cache first, then create node
+            let splatData = this.world.loader.get('splat', blueprint.model)
+            if (!splatData) splatData = await this.world.loader.load('splat', blueprint.model)
+            
+            // create gaussiansplat node directly for splat files
+            root = createNode('gaussiansplat', {
+              src: blueprint.model,
+              splatScale: 1.0,
+              opacity: 1.0,
+              sphericalHarmonics: true,
+              sortMode: 'auto'
+            })
+          } else {
+            // regular GLB/VRM model
+            const type = blueprint.model.endsWith('vrm') ? 'avatar' : 'model'
+            let glb = this.world.loader.get(type, blueprint.model)
+            if (!glb) glb = await this.world.loader.load(type, blueprint.model)
+            root = glb.toNodes()
+          }
+        } catch (err) {
+          console.error(err)
+          crashed = true
+          // no model, will use crash block below
+        }
+      } else {
+        // no model, create empty group for script-only apps
+        root = createNode('group')
       }
       // fetch script (if any)
       if (blueprint.script) {
