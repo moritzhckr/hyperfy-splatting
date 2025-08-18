@@ -1,6 +1,6 @@
 import * as THREE from '../extras/three'
 import { isNumber } from 'lodash-es'
-import { SplatMesh } from '@sparkjsdev/spark'
+import { SplatMesh, SplatLoader } from '@sparkjsdev/spark'
 
 import { System } from './System'
 import { LooseOctree } from '../extras/LooseOctree'
@@ -259,38 +259,82 @@ export class Stage extends System {
     return this.raycastHits
   }
 
-  insertGaussianSplat({ url, node, matrix, splatScale = 1.0, opacity = 1.0, sphericalHarmonics = true, sortMode = 'auto' }) {
-    console.log('🔥 Creating Spark.js SplatMesh for URL:', url)
+  async insertGaussianSplat({ url, node, matrix, sortMode = 'auto' }) {
+    // Only create SplatMesh on client - server doesn't have Spark.js or ProgressEvent
+    if (this.world.network.isServer) {
+      return {
+        splatMesh: null,
+        move: () => {},
+        destroy: () => {}
+      }
+    }
     
     try {
-      // Create Spark.js SplatMesh directly
-      const splatMesh = new SplatMesh({ 
-        url: url,
-        alphaTest: 0.1
-      })
+      let splatMesh
+      
+      // Check if this is an SPZ file - use different loading approach
+      const isSpzFile = url.toLowerCase().includes('.spz')
+      
+      if (isSpzFile) {
+        // TODO: SPZ support is currently limited due to Spark.js compatibility issues
+        console.warn('⚠️ SPZ files have limited support - use PLY or KSPLAT for best results')
+        console.log('🔍 SPZ file detected - attempting load (experimental)')
+        
+        try {
+          splatMesh = new SplatMesh({ 
+            url: url,
+            alphaTest: 0.1
+          })
+          
+          // Give it a brief moment to try loading
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          
+          if (!splatMesh.geometry || !splatMesh.material) {
+            console.warn('⚠️ SPZ file failed to load properly')
+            console.warn('💡 SPZ format has known compatibility issues with current Spark.js version')
+            console.warn('💡 For best results, please use PLY or KSPLAT format instead')
+            console.warn('💡 You can convert SPZ to PLY using tools like CloudCompare or similar')
+          } else {
+            console.log('✅ SPZ loaded successfully (rare!)')
+          }
+          
+        } catch (error) {
+          console.error('❌ SPZ loading failed:', error.message)
+          console.warn('💡 SPZ format is not fully supported - please use PLY or KSPLAT instead')
+          throw error
+        }
+        
+      } else {
+        // For PLY, KSPLAT, etc. - use URL approach
+        splatMesh = new SplatMesh({ 
+          url: url,
+          alphaTest: 0.1
+        })
+      }
       
       // Apply transform matrix
       splatMesh.matrixAutoUpdate = false
       splatMesh.matrix.copy(matrix)
       splatMesh.matrixWorldNeedsUpdate = true
-      
-      // Apply scale
-      splatMesh.scale.setScalar(splatScale)
-      
-      // Set opacity if material is available
-      if (splatMesh.material) {
-        splatMesh.material.opacity = opacity
-        splatMesh.material.transparent = opacity < 1.0
-      }
+      splatMesh.updateMatrixWorld(true)
       
       // Add to scene
       this.scene.add(splatMesh)
       
+      // Force initial visibility and rendering
+      splatMesh.visible = true
+      splatMesh.frustumCulled = false
+      
+      // Trigger a render cycle to ensure immediate visibility
+      setTimeout(() => {
+        if (splatMesh.matrixWorldNeedsUpdate) {
+          splatMesh.updateMatrixWorld(true)
+        }
+      }, 0)
+      
       // Store reference
       const id = node.id || `splat_${Date.now()}`
       this.splatMeshes.set(id, splatMesh)
-      
-      console.log('✅ Spark.js SplatMesh added to scene')
       
       // Return handle
       return {
@@ -298,15 +342,7 @@ export class Stage extends System {
         move: (newMatrix) => {
           splatMesh.matrix.copy(newMatrix)
           splatMesh.matrixWorldNeedsUpdate = true
-        },
-        updateScale: (scale) => {
-          splatMesh.scale.setScalar(scale)
-        },
-        updateOpacity: (opacity) => {
-          if (splatMesh.material) {
-            splatMesh.material.opacity = opacity
-            splatMesh.material.transparent = opacity < 1.0
-          }
+          splatMesh.updateMatrixWorld(true)
         },
         destroy: () => {
           this.scene.remove(splatMesh)
@@ -319,6 +355,14 @@ export class Stage extends System {
       
     } catch (error) {
       console.error('❌ Failed to create Spark.js SplatMesh:', error)
+      
+      // Provide helpful error messages for common issues
+      if (error.message && error.message.includes('gzip')) {
+        console.error('💡 Tip: SPZ file appears corrupted. Try re-uploading a fresh SPZ file.')
+      } else if (error.message && error.message.includes('ProgressEvent')) {
+        console.error('💡 Tip: Server-side execution detected. Check client-only guards.')
+      }
+      
       return null
     }
   }

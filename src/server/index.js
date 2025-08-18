@@ -91,7 +91,17 @@ await world.init({
 })
 
 fastify.register(cors)
-fastify.register(compress)
+fastify.register(compress, {
+  // Don't compress files that are already compressed or binary
+  customTypes: /text\/|application\/json|application\/javascript|text\/css/,
+  // Exclude SPZ and other splat files from compression
+  encodings: ['gzip', 'deflate'],
+  brotli: {
+    quality: 4,
+    lgwin: 22
+  },
+  inflateIfDeflated: true
+})
 fastify.get('/', async (req, reply) => {
   const title = world.settings.title || 'World'
   const desc = world.settings.desc || ''
@@ -120,10 +130,42 @@ if (world.assetsDir) {
     root: world.assetsDir,
     prefix: '/assets/',
     decorateReply: false,
-    setHeaders: res => {
+    // Add better error handling for file serving
+    acceptRanges: true, // Enable range requests for large files
+    cacheControl: true,
+    lastModified: true,
+    etag: true,
+    setHeaders: (res, path) => {
       // all assets are hashed & immutable so we can use aggressive caching
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable') // 1 year
       res.setHeader('Expires', new Date(Date.now() + 31536000000).toUTCString()) // older browsers
+      
+      // Handle Gaussian Splat files with proper MIME types and compression headers
+      const ext = path.split('.').pop()?.toLowerCase()
+      
+      if (ext === 'ply') {
+        res.setHeader('Content-Type', 'application/octet-stream')
+        res.setHeader('Accept-Ranges', 'bytes')
+      } else if (ext === 'splat') {
+        res.setHeader('Content-Type', 'application/octet-stream')
+        res.setHeader('Accept-Ranges', 'bytes')
+      } else if (ext === 'ksplat') {
+        res.setHeader('Content-Type', 'application/octet-stream')
+        res.setHeader('Accept-Ranges', 'bytes')
+      } else if (ext === 'spz') {
+        // SPZ files are pre-compressed and need special handling
+        res.setHeader('Content-Type', 'application/octet-stream')
+        res.setHeader('Accept-Ranges', 'bytes')
+        // Ensure no compression headers are added
+        res.removeHeader('Content-Encoding')
+        res.removeHeader('Transfer-Encoding')
+        // Add CORS headers for cross-origin requests
+        res.setHeader('Access-Control-Allow-Origin', '*')
+        res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS')
+        res.setHeader('Access-Control-Allow-Headers', 'Range')
+        // Prevent any middleware from trying to compress this
+        res.setHeader('X-No-Compression', '1')
+      }
     },
   })
 }
@@ -131,6 +173,18 @@ fastify.register(multipart, {
   limits: {
     fileSize: 200 * 1024 * 1024, // 200MB
   },
+  // Ensure binary files are handled correctly
+  attachFieldsToBody: false,
+  // Don't parse SPZ files as text
+  onFile: async (part) => {
+    const filename = part.filename
+    const ext = filename.split('.').pop()?.toLowerCase()
+    
+    // For binary files like SPZ, ensure proper handling
+    if (['spz', 'ply', 'splat', 'ksplat'].includes(ext)) {
+      part.file.readable = true
+    }
+  }
 })
 fastify.register(ws)
 fastify.register(worldNetwork)
@@ -152,18 +206,49 @@ fastify.get('/env.js', async (req, reply) => {
 
 fastify.post('/api/upload', async (req, reply) => {
   const mp = await req.file()
-  // collect into buffer
+  
+  // Check if this is a binary file that needs special handling
+  const ext = mp.filename.split('.').pop()?.toLowerCase()
+  const isBinaryFormat = ['spz', 'ply', 'splat', 'ksplat', 'glb', 'vrm'].includes(ext)
+  
+  // collect into buffer with proper binary handling
   const chunks = []
   for await (const chunk of mp.file) {
     chunks.push(chunk)
   }
   const buffer = Buffer.concat(chunks)
+  
+  // Set correct MIME type for binary formats
+  let mimeType = mp.mimetype || 'application/octet-stream'
+  if (isBinaryFormat) {
+    mimeType = 'application/octet-stream'
+  }
+  
+  console.log(`📤 Uploading ${ext?.toUpperCase()} file: ${mp.filename} (${buffer.length} bytes, ${mimeType})`)
+  
+  // Basic validation for SPZ files
+  if (ext === 'spz') {
+    // SPZ files should start with specific magic bytes for gzip
+    const magicBytes = buffer.slice(0, 3)
+    const isValidGzip = magicBytes[0] === 0x1f && magicBytes[1] === 0x8b && magicBytes[2] === 0x08
+    
+    if (!isValidGzip) {
+      console.warn(`⚠️ SPZ file ${mp.filename} doesn't appear to be valid gzip format`)
+      // Continue anyway, maybe it's a different SPZ variant
+    } else {
+      console.log(`✓ SPZ file ${mp.filename} has valid gzip header`)
+    }
+  }
+  
   // convert to file
   const file = new File([buffer], mp.filename, {
-    type: mp.mimetype || 'application/octet-stream',
+    type: mimeType,
   })
+  
   // upload
   await assets.upload(file)
+  
+  console.log(`✅ Successfully uploaded: ${mp.filename}`)
 })
 
 fastify.get('/api/upload-check', async (req, reply) => {

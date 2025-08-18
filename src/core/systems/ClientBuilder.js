@@ -760,6 +760,10 @@ export class ClientBuilder extends System {
       this.addAvatar(file, transform, canPlace)
     }
     if (ext === 'ply' || ext === 'splat' || ext === 'ksplat' || ext === 'spz') {
+      // Show warning for SPZ files
+      if (ext === 'spz') {
+        console.warn('⚠️ SPZ files have limited support. PLY and KSPLAT formats work best.')
+      }
       this.addSplat(file, transform)
     }
   }
@@ -780,35 +784,15 @@ export class ClientBuilder extends System {
     
     // create control script for the splat (client-only)
     const scriptContent = `/**
- * Auto-generated Gaussian Splat Controls v2
- * Interactive controls for splat parameters
- * Fixed: Client-only execution and robust error handling
+ * Auto-generated Gaussian Splat Controls v3
+ * Interactive controls for working splat parameters
+ * Fixed: Client-only execution and removed non-working parameters
  */
 
 // Only run on client - server doesn't have Spark.js or DOM APIs
 if (world.isClient) {
 
 app.configure([
-  {
-    key: 'splatScale',
-    type: 'range',
-    label: 'Splat Size',
-    initial: 1.0,
-    min: 0.1,
-    max: 5.0,
-    step: 0.1,
-    hint: 'Controls the overall size of all splats'
-  },
-  {
-    key: 'opacity',
-    type: 'range', 
-    label: 'Opacity',
-    initial: 1.0,
-    min: 0.0,
-    max: 1.0,
-    step: 0.01,
-    hint: 'Controls transparency of all splats'
-  },
   {
     key: 'sortMode',
     type: 'select',
@@ -820,13 +804,6 @@ app.configure([
       { value: 'none', label: 'None' }
     ],
     hint: 'Splat sorting algorithm'
-  },
-  {
-    key: 'sphericalHarmonics',
-    type: 'toggle',
-    label: 'Spherical Harmonics',
-    initial: true,
-    hint: 'Enable advanced lighting (if available in file)'
   }
 ])
 
@@ -863,10 +840,7 @@ function updateSplatProperties() {
   
   // Only update if properties actually changed to avoid spam
   const currentProps = {
-    splatScale: props.splatScale,
-    opacity: props.opacity,
-    sortMode: props.sortMode,
-    sphericalHarmonics: props.sphericalHarmonics
+    sortMode: props.sortMode
   }
   
   let hasChanges = false

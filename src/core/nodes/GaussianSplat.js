@@ -6,9 +6,6 @@ const defaults = {
   linked: false,
   castShadow: false,
   receiveShadow: false,
-  splatScale: 1.0,
-  opacity: 1.0,
-  sphericalHarmonics: true,
   sortMode: 'auto',
 }
 
@@ -23,9 +20,6 @@ export class GaussianSplat extends Node {
     this._linked = isBoolean(data.linked) ? data.linked : defaults.linked
     this._castShadow = isBoolean(data.castShadow) ? data.castShadow : defaults.castShadow
     this._receiveShadow = isBoolean(data.receiveShadow) ? data.receiveShadow : defaults.receiveShadow
-    this._splatScale = isNumber(data.splatScale) ? data.splatScale : defaults.splatScale
-    this._opacity = isNumber(data.opacity) ? data.opacity : defaults.opacity
-    this._sphericalHarmonics = isBoolean(data.sphericalHarmonics) ? data.sphericalHarmonics : defaults.sphericalHarmonics
     this._sortMode = sortModes.includes(data.sortMode) ? data.sortMode : defaults.sortMode
 
     this.loadingState = 'idle' // 'idle', 'loading', 'loaded', 'error'
@@ -38,7 +32,7 @@ export class GaussianSplat extends Node {
     if (this._src && !this._linked) {
       this.loadSplat()
     } else if (this._linked) {
-      this.createSplatHandle()
+      this.createSplatHandle() // Don't await in mount to avoid blocking
     }
   }
 
@@ -62,25 +56,23 @@ export class GaussianSplat extends Node {
     if (this.loadingState === 'loading') return
     if (!this._src) return
 
-    // Server doesn't need to load splats for rendering
-    if (this.ctx.world.isServer) {
+    // Server doesn't need to load splats for rendering - just mark as loaded
+    if (this.ctx.world.network.isServer) {
       this.loadingState = 'loaded'
       return
     }
 
     this.loadingState = 'loading'
     
-    try {
-      console.log('🔥 Loading Gaussian Splat with Spark.js:', this._src)
-      
+    try {      
       // Resolve URL through Hyperfy's asset system
       const resolvedURL = this.ctx.world.resolveURL(this._src)
-      console.log('📁 Resolved URL:', resolvedURL)
       
       this.loadingState = 'loaded'
       
-      if (this.mounted) {
-        this.createSplatHandle()
+      // Only create handle on client after loading is marked complete
+      if (this.mounted && !this.ctx.world.network.isServer) {
+        await this.createSplatHandle()
       }
     } catch (error) {
       console.error('❌ GaussianSplat loading failed:', error)
@@ -88,19 +80,23 @@ export class GaussianSplat extends Node {
     }
   }
 
-  createSplatHandle() {
-    if (!this._src || !this.ctx?.world?.stage) return
+  async createSplatHandle() {
+    if (!this._src || !this.ctx?.world?.stage) {
+      return
+    }
+    
+    // Only create SplatMesh on client
+    if (this.ctx.world.network.isServer) {
+      return
+    }
 
     // Resolve URL for Spark.js
     const resolvedURL = this.ctx.world.resolveURL(this._src)
     
-    this.handle = this.ctx.world.stage.insertGaussianSplat({
+    this.handle = await this.ctx.world.stage.insertGaussianSplat({
       url: resolvedURL,
       node: this,
       matrix: this.matrixWorld,
-      splatScale: this._splatScale,
-      opacity: this._opacity,
-      sphericalHarmonics: this._sphericalHarmonics,
       sortMode: this._sortMode
     })
   }
@@ -111,9 +107,6 @@ export class GaussianSplat extends Node {
     this._linked = source._linked
     this._castShadow = source._castShadow
     this._receiveShadow = source._receiveShadow
-    this._splatScale = source._splatScale
-    this._opacity = source._opacity
-    this._sphericalHarmonics = source._sphericalHarmonics
     this._sortMode = source._sortMode
     this.loadingState = source.loadingState
     return this
@@ -181,57 +174,6 @@ export class GaussianSplat extends Node {
     }
   }
 
-  get splatScale() {
-    return this._splatScale
-  }
-
-  set splatScale(value = defaults.splatScale) {
-    if (!isNumber(value) || value <= 0) {
-      throw new Error('[gaussiansplat] splatScale must be a positive number')
-    }
-    if (this._splatScale === value) return
-    this._splatScale = value
-    if (this.handle && this.handle.updateScale) {
-      this.handle.updateScale(value)
-    } else if (this.handle) {
-      this.needsRebuild = true
-      this.setDirty()
-    }
-  }
-
-  get opacity() {
-    return this._opacity
-  }
-
-  set opacity(value = defaults.opacity) {
-    if (!isNumber(value) || value < 0 || value > 1) {
-      throw new Error('[gaussiansplat] opacity must be a number between 0 and 1')
-    }
-    if (this._opacity === value) return
-    this._opacity = value
-    if (this.handle && this.handle.updateOpacity) {
-      this.handle.updateOpacity(value)
-    } else if (this.handle) {
-      this.needsRebuild = true
-      this.setDirty()
-    }
-  }
-
-  get sphericalHarmonics() {
-    return this._sphericalHarmonics
-  }
-
-  set sphericalHarmonics(value = defaults.sphericalHarmonics) {
-    if (!isBoolean(value)) {
-      throw new Error('[gaussiansplat] sphericalHarmonics must be a boolean')
-    }
-    if (this._sphericalHarmonics === value) return
-    this._sphericalHarmonics = value
-    if (this.handle) {
-      this.needsRebuild = true
-      this.setDirty()
-    }
-  }
 
   get sortMode() {
     return this._sortMode
@@ -276,24 +218,6 @@ export class GaussianSplat extends Node {
         },
         set receiveShadow(value) {
           self.receiveShadow = value
-        },
-        get splatScale() {
-          return self.splatScale
-        },
-        set splatScale(value) {
-          self.splatScale = value
-        },
-        get opacity() {
-          return self.opacity
-        },
-        set opacity(value) {
-          self.opacity = value
-        },
-        get sphericalHarmonics() {
-          return self.sphericalHarmonics
-        },
-        set sphericalHarmonics(value) {
-          self.sphericalHarmonics = value
         },
         get sortMode() {
           return self.sortMode
