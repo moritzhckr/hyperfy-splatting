@@ -379,6 +379,9 @@ export class ClientLoader extends System {
       })
     }
     if (type === 'splat') {
+      // Store the file directly for hasFile/getFile to work
+      this.files.set(url, file)
+      
       // For splat files, create a simple promise that resolves to file info
       promise = Promise.resolve().then(() => {
         const splatData = {

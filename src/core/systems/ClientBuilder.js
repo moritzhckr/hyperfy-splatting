@@ -780,33 +780,54 @@ export class ClientBuilder extends System {
     const url = `asset://${filename}`
     
     console.log('🔥 Adding Spark.js splat file:', { filename, url, size: file.size })
+    console.log('🚨 THIS IS THE NEW CLIENTBUILDER CODE - IF YOU SEE THIS, THE CODE IS LOADED!')
     
-    // Show warning for SPZ files
-    if (ext === 'spz') {
-      console.warn('⚠️ SPZ files have limited support. PLY and KSPLAT formats work best.')
-    }
+    console.log('📄 Processing splat file:', ext.toUpperCase(), 'format')
     
     // cache file locally so this client can insta-load it  
+    console.log('💾 Caching file with key:', url, 'size:', file.size)
     this.world.loader.insert('splat', url, file)
+    console.log('✅ File cached successfully')
     
-    // Read the GaussianSplat.js app script and modify it to pre-load the dragged file
+    // WORKAROUND: Also cache in files directly (since insert() is broken for splats)
+    console.log('🔧 WORKAROUND: Setting file directly in loader.files')
+    this.world.loader.setFile(url, file)
+    
+    // Debug URL resolution issue
+    const originalUrl = url
+    const resolvedUrl = this.world.resolveURL(url)
+    console.log('🔍 URL Resolution Debug:')
+    console.log('  Original URL:', originalUrl)
+    console.log('  Resolved URL:', resolvedUrl)
+    
+    // Try both URLs
+    const hasOriginal = this.world.loader.hasFile(originalUrl)
+    const hasResolved = this.world.loader.hasFile(resolvedUrl)
+    console.log('🔍 hasFile results:')
+    console.log('  Original URL hasFile:', hasOriginal)
+    console.log('  Resolved URL hasFile:', hasResolved)
+    
+    // Cache with BOTH URLs as workaround
+    console.log('🔧 Double cache workaround - setting both URLs')
+    this.world.loader.setFile(originalUrl, file)
+    this.world.loader.setFile(resolvedUrl, file)
+    
+    // Final check
+    const finalCheck = this.world.loader.hasFile(originalUrl) || this.world.loader.hasFile(resolvedUrl)
+    console.log('🔍 Final cache check - hasFile (any):', finalCheck)
+    
+    // Create inline script based on the actual GaussianSplat.js
+    // (fs.readFileSync doesn't work in browser, so we inline the content)
+    console.log('📝 Creating inline GaussianSplat.js script with pre-loaded file')
+    
     let scriptContent
-    try {
-      const scriptPath = path.join(__dirname, '../../apps/GaussianSplat.js')
-      let baseScript = fs.readFileSync(scriptPath, 'utf-8')
-      
-      // Modify the script to pre-populate the splatFile with the dragged URL
-      scriptContent = baseScript.replace(
-        "initial: null,",
-        `initial: '${url}',`
-      )
-      
-      console.log('✅ Loaded and modified GaussianSplat.js app script for drag & drop')
-    } catch (error) {
-      console.warn('⚠️ Could not load GaussianSplat.js, using inline script')
-      // Fallback to a minimal inline script
-      scriptContent = `
-// Only run on client
+    scriptContent = `
+/**
+ * Gaussian Splat App v2 (Drag & Drop Version)
+ * Identical to apps/GaussianSplat.js but with pre-loaded file
+ */
+
+// Only run on client - server doesn't have Spark.js or DOM APIs
 if (world.isClient) {
 
 app.configure([
@@ -816,11 +837,11 @@ app.configure([
     label: 'Splat File',
     initial: '${url}',
     accept: '.ply,.splat,.ksplat,.spz',
-    hint: 'Upload PLY, KSPLAT, or SPLAT file (SPZ has limited support)'
+    hint: 'Upload PLY, KSPLAT, SPLAT, or SPZ file'
   },
   {
     key: 'sortMode',
-    type: 'select',
+    type: 'switch',
     label: 'Sort Mode',
     initial: 'auto',
     options: [
@@ -839,13 +860,8 @@ app.configure([
   }
 ])
 
-// State management for the app
-let splatNode = null
-let cubeHandle = null
-let currentSplatUrl = null
-
 // Create cube handle immediately
-cubeHandle = app.create('prim', {
+const cubeHandle = app.create('prim', {
   type: 'box',
   position: [0, 0, 0],
   scale: [1, 1, 1],
@@ -857,32 +873,63 @@ cubeHandle = app.create('prim', {
 })
 app.add(cubeHandle)
 
-// Create splat immediately since we have the file
-const splat = app.create('gaussiansplat', {
-  src: '${url}',
-  position: [0, 0, 0],
-  sortMode: 'auto',
-  linked: false
-})
-app.add(splat)
-splatNode = splat
-currentSplatUrl = '${url}'
+// State for splat
+let splat = null
+let lastSplatFile = null
+let lastSortMode = null
 
-// Basic property updates
+// Use app.on('update') for reactive props
 app.on('update', () => {
-  if (cubeHandle && props.showCube !== undefined) {
+  console.log('🔄 App update - props.splatFile:', props.splatFile, 'type:', typeof props.splatFile)
+  
+  // Update cube visibility (always safe to access props here)
+  if (cubeHandle && typeof props.showCube !== 'undefined') {
     cubeHandle.visible = props.showCube
   }
-  if (splatNode && props.sortMode) {
-    splatNode.sortMode = props.sortMode
+  
+  // Handle splat file changes
+  if (props.splatFile && typeof props.splatFile === 'string' && props.splatFile.startsWith('asset://')) {
+    // Only create new splat if the file changed
+    if (props.splatFile !== lastSplatFile) {
+      // Remove old splat if exists
+      if (splat && splat.parent) {
+        splat.parent.remove(splat)
+        splat = null
+      }
+      
+      // Create new splat (only once!)
+      try {
+        splat = app.create('gaussiansplat', {
+          src: props.splatFile,
+          sortMode: props.sortMode || 'auto',
+          linked: false
+          // No hardcoded position - let the UI handle positioning
+        })
+        app.add(splat)
+        lastSplatFile = props.splatFile
+        console.log('✅ Splat created from file:', props.splatFile)
+      } catch (error) {
+        console.error('❌ Failed to create splat:', error)
+      }
+    }
+    
+    // Update sort mode if it changed
+    if (splat && props.sortMode && props.sortMode !== lastSortMode) {
+      try {
+        splat.sortMode = props.sortMode
+        lastSortMode = props.sortMode
+      } catch (error) {
+        console.error('❌ Failed to update sort mode:', error)
+      }
+    }
   }
 })
 
-console.log('🔥 Drag & drop splat app ready with pre-loaded file')
+console.log('🌟 Gaussian Splat app ready!')
+console.log('💡 Use the controls to upload a splat file or toggle cube visibility')
 
-}
-      `
-    }
+} // end if (world.isClient)
+`
     
     const scriptHash = await hashFile(new Blob([scriptContent], { type: 'text/javascript' }))
     const scriptFilename = `${scriptHash}.js`
@@ -928,17 +975,20 @@ console.log('🔥 Drag & drop splat app ready with pre-loaded file')
       state: {},
     }
     
-    const app = this.world.entities.add(data, true)
     console.log('📤 Uploading splat file and app script...')
     
     try {
-      // upload both files in parallel
+      // upload both files in parallel FIRST
       await Promise.all([
         this.world.network.upload(file), // the splat file
         this.world.network.upload(new File([scriptContent], scriptFilename, { type: 'text/javascript' })) // the app script
       ])
       
       console.log('✅ Splat file and app uploaded successfully')
+      
+      // Create app AFTER upload is complete
+      console.log('🚀 Creating splat app after successful upload')
+      const app = this.world.entities.add(data, true)
       
       // mark as uploaded so it loads immediately
       app.onUploaded()

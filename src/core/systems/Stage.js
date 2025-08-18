@@ -260,7 +260,7 @@ export class Stage extends System {
   }
 
   async insertGaussianSplat({ url, node, matrix, sortMode = 'auto' }) {
-    // Only create SplatMesh on client - server doesn't have Spark.js or ProgressEvent
+    // Only create SplatMesh on client
     if (this.world.network.isServer) {
       return {
         splatMesh: null,
@@ -270,99 +270,55 @@ export class Stage extends System {
     }
     
     try {
-      let splatMesh
+      console.log('🔥 Creating SplatMesh:', url)
       
-      // Check if this is an SPZ file - use different loading approach
-      const isSpzFile = url.toLowerCase().includes('.spz')
-      
-      if (isSpzFile) {
-        // TODO: SPZ support is currently limited due to Spark.js compatibility issues
-        console.warn('⚠️ SPZ files have limited support - use PLY or KSPLAT for best results')
-        console.log('🔍 SPZ file detected - attempting load (experimental)')
-        
-        try {
-          splatMesh = new SplatMesh({ 
-            url: url,
-            alphaTest: 0.1
-          })
-          
-          // Give it a brief moment to try loading
-          await new Promise(resolve => setTimeout(resolve, 1000))
-          
-          if (!splatMesh.geometry || !splatMesh.material) {
-            console.warn('⚠️ SPZ file failed to load properly')
-            console.warn('💡 SPZ format has known compatibility issues with current Spark.js version')
-            console.warn('💡 For best results, please use PLY or KSPLAT format instead')
-            console.warn('💡 You can convert SPZ to PLY using tools like CloudCompare or similar')
-          } else {
-            console.log('✅ SPZ loaded successfully (rare!)')
-          }
-          
-        } catch (error) {
-          console.error('❌ SPZ loading failed:', error.message)
-          console.warn('💡 SPZ format is not fully supported - please use PLY or KSPLAT instead')
-          throw error
+      // Use cached file if available
+      let actualUrl = url
+      if (node._src && this.world.loader.hasFile(node._src)) {
+        const cachedFile = this.world.loader.getFile(node._src)
+        if (cachedFile) {
+          actualUrl = URL.createObjectURL(cachedFile)
+          console.log('📁 Using cached blob URL:', actualUrl)
+        } else {
+          console.log('⚠️ No cached file found for:', node._src)
         }
-        
       } else {
-        // For PLY, KSPLAT, etc. - use URL approach
-        splatMesh = new SplatMesh({ 
-          url: url,
-          alphaTest: 0.1
-        })
+        console.log('🔍 Checking cache - node._src:', node._src, 'hasFile:', this.world.loader.hasFile(node._src))
       }
       
-      // Apply transform matrix
-      splatMesh.matrixAutoUpdate = false
+      // Create SplatMesh exactly like Spark.js docs
+      const splatMesh = new SplatMesh({ url: actualUrl })
+      
+      // Apply transform
       splatMesh.matrix.copy(matrix)
-      splatMesh.matrixWorldNeedsUpdate = true
+      splatMesh.matrixAutoUpdate = false
       splatMesh.updateMatrixWorld(true)
       
       // Add to scene
       this.scene.add(splatMesh)
       
-      // Force initial visibility and rendering
-      splatMesh.visible = true
-      splatMesh.frustumCulled = false
-      
-      // Trigger a render cycle to ensure immediate visibility
-      setTimeout(() => {
-        if (splatMesh.matrixWorldNeedsUpdate) {
-          splatMesh.updateMatrixWorld(true)
-        }
-      }, 0)
-      
       // Store reference
       const id = node.id || `splat_${Date.now()}`
       this.splatMeshes.set(id, splatMesh)
+      
+      console.log('✅ SplatMesh created and added to scene')
       
       // Return handle
       return {
         splatMesh,
         move: (newMatrix) => {
           splatMesh.matrix.copy(newMatrix)
-          splatMesh.matrixWorldNeedsUpdate = true
           splatMesh.updateMatrixWorld(true)
         },
         destroy: () => {
           this.scene.remove(splatMesh)
           this.splatMeshes.delete(id)
-          if (splatMesh.dispose) {
-            splatMesh.dispose()
-          }
+          splatMesh.dispose?.()
         }
       }
       
     } catch (error) {
-      console.error('❌ Failed to create Spark.js SplatMesh:', error)
-      
-      // Provide helpful error messages for common issues
-      if (error.message && error.message.includes('gzip')) {
-        console.error('💡 Tip: SPZ file appears corrupted. Try re-uploading a fresh SPZ file.')
-      } else if (error.message && error.message.includes('ProgressEvent')) {
-        console.error('💡 Tip: Server-side execution detected. Check client-only guards.')
-      }
-      
+      console.error('❌ SplatMesh creation failed:', error)
       return null
     }
   }

@@ -14,7 +14,7 @@ app.configure([
     label: 'Splat File',
     initial: null,
     accept: '.ply,.splat,.ksplat,.spz',
-    hint: 'Upload PLY, KSPLAT, or SPLAT file (SPZ has limited support)'
+    hint: 'Upload PLY, KSPLAT, SPLAT, or SPZ file'
   },
   {
     key: 'sortMode',
@@ -72,13 +72,13 @@ app.on('update', () => {
         splat = null
       }
       
-      // Create new splat
+      // Create new splat (only once!)
       try {
         splat = app.create('gaussiansplat', {
           src: props.splatFile,
-          position: [0, 0, 0],
           sortMode: props.sortMode || 'auto',
           linked: false
+          // No hardcoded position - let the UI handle positioning
         })
         app.add(splat)
         lastSplatFile = props.splatFile
