@@ -1,0 +1,106 @@
+/**
+ * Gaussian Splat App v2
+ * Simple and functional splat app with cube handle toggle
+ * Based on model app pattern for reliable prop handling
+ */
+
+// Only run on client - server doesn't have Spark.js or DOM APIs
+if (world.isClient) {
+
+app.configure([
+  {
+    key: 'splatFile',
+    type: 'file',
+    label: 'Splat File',
+    initial: null,
+    accept: '.ply,.splat,.ksplat,.spz',
+    hint: 'Upload PLY, KSPLAT, or SPLAT file (SPZ has limited support)'
+  },
+  {
+    key: 'sortMode',
+    type: 'switch',
+    label: 'Sort Mode',
+    initial: 'auto',
+    options: [
+      { value: 'auto', label: 'Auto' },
+      { value: 'distance', label: 'Distance' },
+      { value: 'none', label: 'None' }
+    ],
+    hint: 'Splat sorting algorithm'
+  },
+  {
+    key: 'showCube',
+    type: 'toggle',
+    label: 'Show Cube Handle',
+    initial: true,
+    hint: 'Toggle visibility of positioning cube handle'
+  }
+])
+
+// Create cube handle immediately
+const cubeHandle = app.create('prim', {
+  type: 'box',
+  position: [0, 0, 0],
+  scale: [1, 1, 1],
+  color: '#ffaa00',
+  opacity: 0.3,
+  transparent: true,
+  castShadow: false,
+  receiveShadow: false
+})
+app.add(cubeHandle)
+
+// State for splat
+let splat = null
+let lastSplatFile = null
+let lastSortMode = null
+
+// Use app.on('update') for reactive props
+app.on('update', () => {
+  // Update cube visibility (always safe to access props here)
+  if (cubeHandle && typeof props.showCube !== 'undefined') {
+    cubeHandle.visible = props.showCube
+  }
+  
+  // Handle splat file changes
+  if (props.splatFile && typeof props.splatFile === 'string' && props.splatFile.startsWith('asset://')) {
+    // Only create new splat if the file changed
+    if (props.splatFile !== lastSplatFile) {
+      // Remove old splat if exists
+      if (splat && splat.parent) {
+        splat.parent.remove(splat)
+        splat = null
+      }
+      
+      // Create new splat
+      try {
+        splat = app.create('gaussiansplat', {
+          src: props.splatFile,
+          position: [0, 0, 0],
+          sortMode: props.sortMode || 'auto',
+          linked: false
+        })
+        app.add(splat)
+        lastSplatFile = props.splatFile
+        console.log('✅ Splat created from file:', props.splatFile)
+      } catch (error) {
+        console.error('❌ Failed to create splat:', error)
+      }
+    }
+    
+    // Update sort mode if it changed
+    if (splat && props.sortMode && props.sortMode !== lastSortMode) {
+      try {
+        splat.sortMode = props.sortMode
+        lastSortMode = props.sortMode
+      } catch (error) {
+        console.error('❌ Failed to update sort mode:', error)
+      }
+    }
+  }
+})
+
+console.log('🌟 Gaussian Splat app ready!')
+console.log('💡 Use the controls to upload a splat file or toggle cube visibility')
+
+} // end if (world.isClient)

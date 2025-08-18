@@ -2,6 +2,8 @@ import moment from 'moment'
 import * as THREE from '../extras/three'
 import { cloneDeep, isBoolean } from 'lodash-es'
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js'
+import fs from 'fs'
+import path from 'path'
 
 import { System } from './System'
 
@@ -779,20 +781,43 @@ export class ClientBuilder extends System {
     
     console.log('🔥 Adding Spark.js splat file:', { filename, url, size: file.size })
     
+    // Show warning for SPZ files
+    if (ext === 'spz') {
+      console.warn('⚠️ SPZ files have limited support. PLY and KSPLAT formats work best.')
+    }
+    
     // cache file locally so this client can insta-load it  
     this.world.loader.insert('splat', url, file)
     
-    // create control script for the splat (client-only)
-    const scriptContent = `/**
- * Auto-generated Gaussian Splat Controls v3
- * Interactive controls for working splat parameters
- * Fixed: Client-only execution and removed non-working parameters
- */
-
-// Only run on client - server doesn't have Spark.js or DOM APIs
+    // Read the GaussianSplat.js app script and modify it to pre-load the dragged file
+    let scriptContent
+    try {
+      const scriptPath = path.join(__dirname, '../../apps/GaussianSplat.js')
+      let baseScript = fs.readFileSync(scriptPath, 'utf-8')
+      
+      // Modify the script to pre-populate the splatFile with the dragged URL
+      scriptContent = baseScript.replace(
+        "initial: null,",
+        `initial: '${url}',`
+      )
+      
+      console.log('✅ Loaded and modified GaussianSplat.js app script for drag & drop')
+    } catch (error) {
+      console.warn('⚠️ Could not load GaussianSplat.js, using inline script')
+      // Fallback to a minimal inline script
+      scriptContent = `
+// Only run on client
 if (world.isClient) {
 
 app.configure([
+  {
+    key: 'splatFile',
+    type: 'file',
+    label: 'Splat File',
+    initial: '${url}',
+    accept: '.ply,.splat,.ksplat,.spz',
+    hint: 'Upload PLY, KSPLAT, or SPLAT file (SPZ has limited support)'
+  },
   {
     key: 'sortMode',
     type: 'select',
@@ -804,67 +829,60 @@ app.configure([
       { value: 'none', label: 'None' }
     ],
     hint: 'Splat sorting algorithm'
+  },
+  {
+    key: 'showCube',
+    type: 'toggle',
+    label: 'Show Cube Handle',
+    initial: true,
+    hint: 'Toggle visibility of positioning cube handle'
   }
 ])
 
-// Find the gaussiansplat node created by the model loading
+// State management for the app
 let splatNode = null
+let cubeHandle = null
+let currentSplatUrl = null
 
-function findSplatNode() {
-  // Look for gaussiansplat in the app's children
-  function traverse(node) {
-    if (!node) return null
-    if (node.name === 'gaussiansplat') {
-      return node
-    }
-    // Check if node has children and iterate safely
-    if (node.children && Array.isArray(node.children)) {
-      for (const child of node.children) {
-        const found = traverse(child)
-        if (found) return found
-      }
-    }
-    return null
-  }
-  return traverse(app.root)
-}
+// Create cube handle immediately
+cubeHandle = app.create('prim', {
+  type: 'box',
+  position: [0, 0, 0],
+  scale: [1, 1, 1],
+  color: '#ffaa00',
+  opacity: 0.3,
+  transparent: true,
+  castShadow: false,
+  receiveShadow: false
+})
+app.add(cubeHandle)
 
-// Update properties in real-time
-let lastProps = {}
-function updateSplatProperties() {
-  try {
-    if (!splatNode) {
-      splatNode = findSplatNode()
-      if (!splatNode) return
-    }
-  
-  // Only update if properties actually changed to avoid spam
-  const currentProps = {
-    sortMode: props.sortMode
-  }
-  
-  let hasChanges = false
-  for (const [key, value] of Object.entries(currentProps)) {
-    if (lastProps[key] !== value) {
-      hasChanges = true
-      splatNode[key] = value
-    }
-  }
-  
-    if (hasChanges) {
-      console.log('🎛️ Updated splat properties:', currentProps)
-      lastProps = { ...currentProps }
-    }
-  } catch (error) {
-    console.error('Error updating splat properties:', error)
-  }
-}
+// Create splat immediately since we have the file
+const splat = app.create('gaussiansplat', {
+  src: '${url}',
+  position: [0, 0, 0],
+  sortMode: 'auto',
+  linked: false
+})
+app.add(splat)
+splatNode = splat
+currentSplatUrl = '${url}'
 
+// Basic property updates
 app.on('update', () => {
-  updateSplatProperties()
+  if (cubeHandle && props.showCube !== undefined) {
+    cubeHandle.visible = props.showCube
+  }
+  if (splatNode && props.sortMode) {
+    splatNode.sortMode = props.sortMode
+  }
 })
 
-} // end if (world.isClient)`
+console.log('🔥 Drag & drop splat app ready with pre-loaded file')
+
+}
+      `
+    }
     
     const scriptHash = await hashFile(new Blob([scriptContent], { type: 'text/javascript' }))
     const scriptFilename = `${scriptHash}.js`
@@ -881,9 +899,9 @@ app.on('update', () => {
       image: null,
       author: null,
       url: null,
-      desc: null,
-      model: url, // splat file as model
-      script: scriptUrl, // control script for interactive parameters
+      desc: `Gaussian Splat with positioning handle`,
+      model: null, // no model, just the script
+      script: scriptUrl, // the GaussianSplat.js app script
       props: {},
       preload: false,
       public: false,
@@ -896,8 +914,7 @@ app.on('update', () => {
     // register blueprint
     this.world.blueprints.add(blueprint, true)
     
-    // create app entity with temporary uploader to prevent race condition
-    const tempUploaderId = `temp_${this.world.network.id}_${Date.now()}`
+    // create app entity - no temporary uploader since we want immediate loading
     const data = {
       id: uuid(),
       type: 'app',
@@ -906,27 +923,27 @@ app.on('update', () => {
       quaternion: transform.quaternion,
       scale: [1, 1, 1],
       mover: null,
-      uploader: tempUploaderId, // temporary ID to prevent immediate loading
+      uploader: this.world.network.id, // normal uploader for immediate loading
       pinned: false,
       state: {},
     }
     
     const app = this.world.entities.add(data, true)
-    console.log('📤 Uploading splat file and control script...')
+    console.log('📤 Uploading splat file and app script...')
     
     try {
       // upload both files in parallel
       await Promise.all([
         this.world.network.upload(file), // the splat file
-        this.world.network.upload(new File([scriptContent], scriptFilename, { type: 'text/javascript' })) // the control script
+        this.world.network.upload(new File([scriptContent], scriptFilename, { type: 'text/javascript' })) // the app script
       ])
       
-      console.log('✅ Splat file and controls uploaded successfully')
+      console.log('✅ Splat file and app uploaded successfully')
       
-      // mark as uploaded exactly like addModel does  
+      // mark as uploaded so it loads immediately
       app.onUploaded()
       
-      console.log('✅ Splat app with controls created successfully:', filename)
+      console.log('✅ Splat app created successfully:', filename)
       
     } catch (err) {
       console.error('❌ Failed to upload splat files:', err)
