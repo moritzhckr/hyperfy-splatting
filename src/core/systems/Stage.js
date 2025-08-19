@@ -296,6 +296,82 @@ export class Stage extends System {
       }
       const splatMesh = new SplatMesh(splatMeshOptions)
       
+      // Debug large splat files
+      console.log('🚀 SplatMesh created, waiting for load...')
+      
+      // Add timeout for large files (5 minutes max)
+      const loadTimeout = setTimeout(() => {
+        console.warn('⏰ Splat loading timeout after 5 minutes')
+        console.warn('   File may be too large or corrupted')
+        console.warn('   Consider using a smaller file or different format')
+      }, 5 * 60 * 1000)
+      
+      // Listen for load events
+      splatMesh.addEventListener('loaded', () => {
+        clearTimeout(loadTimeout) // Clear timeout on successful load
+        console.log('✅ Large splat file loaded successfully!')
+        console.log('  Splat count:', splatMesh.splatCount || 'unknown')
+        console.log('  Bounds:', splatMesh.boundingBox)
+        console.log('  Position:', splatMesh.position)
+        console.log('  Scale:', splatMesh.scale)
+        
+        // Memory usage monitoring
+        if (performance.memory) {
+          const memory = performance.memory
+          const usedMB = (memory.usedJSHeapSize / 1024 / 1024).toFixed(1)
+          const totalMB = (memory.totalJSHeapSize / 1024 / 1024).toFixed(1)
+          const limitMB = (memory.jsHeapSizeLimit / 1024 / 1024).toFixed(1)
+          console.log('🧠 Memory usage after splat load:')
+          console.log(`  Used: ${usedMB}MB / Total: ${totalMB}MB / Limit: ${limitMB}MB`)
+          
+          // Warn if approaching memory limit
+          const memoryUsagePercent = (memory.usedJSHeapSize / memory.jsHeapSizeLimit) * 100
+          if (memoryUsagePercent > 80) {
+            console.warn('⚠️ High memory usage! Browser may become unstable.')
+          }
+        }
+        
+        // Debug camera vs splat position
+        const camera = this.world.camera
+        if (camera) {
+          console.log('📷 Camera debug:')
+          console.log('  Camera position:', camera.position)
+          console.log('  Camera looking at:', camera.getWorldDirection(new THREE.Vector3()))
+          
+          // Calculate distance to splat
+          const distance = camera.position.distanceTo(splatMesh.position)
+          console.log('  Distance to splat:', distance.toFixed(2))
+          
+          // Auto-fit large scenes to viewport
+          if (splatMesh.boundingBox) {
+            const box = splatMesh.boundingBox
+            const size = box.getSize(new THREE.Vector3())
+            const maxDim = Math.max(size.x, size.y, size.z)
+            console.log('  Scene size:', size, 'max dimension:', maxDim.toFixed(2))
+            
+            // If scene is very large, suggest camera adjustment
+            if (maxDim > 50) {
+              console.log('⚠️ Large scene detected! You may need to move camera back or scale down')
+              console.log('  Suggested camera distance:', (maxDim * 2).toFixed(2))
+            }
+          }
+        }
+      })
+      
+      splatMesh.addEventListener('error', (error) => {
+        console.error('❌ Splat loading error:', error)
+      })
+      
+      // Add progress tracking for large files
+      if (splatMesh.addEventListener) {
+        splatMesh.addEventListener('progress', (event) => {
+          if (event.loaded && event.total) {
+            const progress = (event.loaded / event.total * 100).toFixed(1)
+            console.log(`📊 Loading progress: ${progress}% (${event.loaded}/${event.total} bytes)`)
+          }
+        })
+      }
+      
       // Apply transform
       splatMesh.matrix.copy(matrix)
       splatMesh.matrixAutoUpdate = false

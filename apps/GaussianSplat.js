@@ -48,12 +48,13 @@ app.configure([
 const cubeHandle = app.create('prim', {
   type: 'box',
   position: [0, 0, 0],
-  scale: [1, 1, 1],
+  scale: [0.5, 0.5, 0.5], // Smaller cube for better performance
   color: '#ffaa00',
-  opacity: 0.3,
+  opacity: 0.2, // Lower opacity to reduce GPU load
   transparent: true,
   castShadow: false,
-  receiveShadow: false
+  receiveShadow: false,
+  frustumCulled: true // Enable frustum culling
 })
 app.add(cubeHandle)
 
