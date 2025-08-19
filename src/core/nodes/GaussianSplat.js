@@ -28,10 +28,8 @@ export class GaussianSplat extends Node {
   }
 
   mount() {
-    console.log('🔧 GaussianSplat.mount() - src:', this._src, 'linked:', this._linked, 'needsRebuild was:', this.needsRebuild)
     this.needsRebuild = false
     if (this._src && !this._linked) {
-      console.log('📋 Calling loadSplat()')
       this.loadSplat()
     } else if (this._linked) {
       this.createSplatHandle() // Don't await in mount to avoid blocking
@@ -39,16 +37,12 @@ export class GaussianSplat extends Node {
   }
 
   commit(didMove) {
-    console.log('🔧 GaussianSplat.commit() - didMove:', didMove, 'needsRebuild:', this.needsRebuild, 'handle:', !!this.handle)
-    
     if (this.needsRebuild) {
-      console.log('⚠️ REBUILDING splat due to needsRebuild flag!')
       this.unmount()
       this.mount()
       return
     }
     if (didMove && this.handle) {
-      console.log('✅ Moving splat (correct behavior)')
       this.handle.move(this.matrixWorld)
     }
   }
@@ -99,19 +93,27 @@ export class GaussianSplat extends Node {
     // Try to use cached file first, fallback to resolved URL
     let actualURL = this.ctx.world.resolveURL(this._src)
     
-    // Check if we have a cached file (for drag & drop files)
-    console.log('🔍 GaussianSplat cache check - _src:', this._src)
-    console.log('🔍 hasFile result:', this.ctx.world.loader.hasFile(this._src))
-    
     if (this.ctx.world.loader.hasFile(this._src)) {
       const cachedFile = this.ctx.world.loader.getFile(this._src)
-      console.log('🔍 Got cached file:', !!cachedFile, cachedFile?.size)
       if (cachedFile) {
         actualURL = URL.createObjectURL(cachedFile)
-        console.log('📁 GaussianSplat using cached blob URL:', actualURL)
       }
     } else {
-      console.log('❌ No cached file found, will use HTTP URL (may cause issues)')
+      // For HTTP URLs, verify the asset exists before trying to load
+      if (actualURL.includes('/assets/')) {
+        try {
+          const response = await fetch(actualURL, { method: 'HEAD' })
+          if (!response.ok) {
+            console.error('❌ Splat asset not found:', actualURL)
+            this.loadingState = 'error'
+            return
+          }
+        } catch (error) {
+          console.error('❌ Failed to load splat asset:', error)
+          this.loadingState = 'error'
+          return
+        }
+      }
     }
     
     this.handle = await this.ctx.world.stage.insertGaussianSplat({
@@ -205,7 +207,6 @@ export class GaussianSplat extends Node {
       throw new Error('[gaussiansplat] sortMode must be one of: ' + sortModes.join(', '))
     }
     if (this._sortMode === value) return
-    console.log('🔄 sortMode changed from', this._sortMode, 'to', value, '- triggering needsRebuild')
     this._sortMode = value
     if (this.handle) {
       this.needsRebuild = true

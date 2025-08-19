@@ -270,24 +270,31 @@ export class Stage extends System {
     }
     
     try {
-      console.log('🔥 Creating SplatMesh:', url)
-      
       // Use cached file if available
       let actualUrl = url
       if (node._src && this.world.loader.hasFile(node._src)) {
         const cachedFile = this.world.loader.getFile(node._src)
         if (cachedFile) {
           actualUrl = URL.createObjectURL(cachedFile)
-          console.log('📁 Using cached blob URL:', actualUrl)
-        } else {
-          console.log('⚠️ No cached file found for:', node._src)
         }
-      } else {
-        console.log('🔍 Checking cache - node._src:', node._src, 'hasFile:', this.world.loader.hasFile(node._src))
       }
       
-      // Create SplatMesh exactly like Spark.js docs
-      const splatMesh = new SplatMesh({ url: actualUrl })
+      // Detect file type from original source URL (not blob URL)
+      let fileType = null
+      const srcUrl = node._src || url
+      if (srcUrl) {
+        const ext = srcUrl.split('.').pop()?.toLowerCase()
+        if (ext === 'ksplat' || ext === 'splat') {
+          fileType = ext
+        }
+      }
+      
+      // Create SplatMesh with explicit fileType for KSPLAT/SPLAT files
+      const splatMeshOptions = { url: actualUrl }
+      if (fileType) {
+        splatMeshOptions.fileType = fileType
+      }
+      const splatMesh = new SplatMesh(splatMeshOptions)
       
       // Apply transform
       splatMesh.matrix.copy(matrix)
@@ -300,8 +307,6 @@ export class Stage extends System {
       // Store reference
       const id = node.id || `splat_${Date.now()}`
       this.splatMeshes.set(id, splatMesh)
-      
-      console.log('✅ SplatMesh created and added to scene')
       
       // Return handle
       return {

@@ -857,6 +857,13 @@ app.configure([
     label: 'Show Cube Handle',
     initial: true,
     hint: 'Toggle visibility of positioning cube handle'
+  },
+  {
+    key: 'autoRotate',
+    type: 'toggle',
+    label: 'Auto-Rotate Splats',
+    initial: true,
+    hint: 'Automatically rotate splats 180° on X-axis for correct orientation'
   }
 ])
 
@@ -877,14 +884,13 @@ app.add(cubeHandle)
 let splat = null
 let lastSplatFile = null
 let lastSortMode = null
+let lastShowCube = null
 
-// Use app.on('update') for reactive props
 app.on('update', () => {
-  console.log('🔄 App update - props.splatFile:', props.splatFile, 'type:', typeof props.splatFile)
-  
-  // Update cube visibility (always safe to access props here)
-  if (cubeHandle && typeof props.showCube !== 'undefined') {
+  // Update cube visibility only when changed
+  if (cubeHandle && typeof props.showCube !== 'undefined' && props.showCube !== lastShowCube) {
     cubeHandle.visible = props.showCube
+    lastShowCube = props.showCube
   }
   
   // Handle splat file changes
@@ -903,11 +909,15 @@ app.on('update', () => {
           src: props.splatFile,
           sortMode: props.sortMode || 'auto',
           linked: false
-          // No hardcoded position - let the UI handle positioning
         })
+        
+        // Rotate 180° around X-axis to fix splat orientation (if enabled)
+        if (props.autoRotate !== false) {
+          splat.rotation.x = Math.PI
+        }
+        
         app.add(splat)
         lastSplatFile = props.splatFile
-        console.log('✅ Splat created from file:', props.splatFile)
       } catch (error) {
         console.error('❌ Failed to create splat:', error)
       }
@@ -925,8 +935,6 @@ app.on('update', () => {
   }
 })
 
-console.log('🌟 Gaussian Splat app ready!')
-console.log('💡 Use the controls to upload a splat file or toggle cube visibility')
 
 } // end if (world.isClient)
 `
