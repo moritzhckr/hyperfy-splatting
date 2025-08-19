@@ -780,9 +780,34 @@ export class ClientBuilder extends System {
     const url = `asset://${filename}`
     
     console.log('🔥 Adding Spark.js splat file:', { filename, url, size: file.size })
-    console.log('🚨 THIS IS THE NEW CLIENTBUILDER CODE - IF YOU SEE THIS, THE CODE IS LOADED!')
     
-    console.log('📄 Processing splat file:', ext.toUpperCase(), 'format')
+    // Check file size limits for stability
+    const sizeMB = file.size / (1024 * 1024)
+    console.log(`📄 Processing splat file: ${ext.toUpperCase()} format (${sizeMB.toFixed(1)}MB)`)
+    
+    // Warn about large files
+    if (sizeMB > 100) {
+      console.warn('⚠️ WARNING: Very large splat file! This may cause browser crashes.')
+      console.warn('   File size:', sizeMB.toFixed(1), 'MB')
+      console.warn('   Recommended: < 50MB for stable performance')
+      console.warn('   Consider using compressed formats or reducing point density')
+    }
+    
+    if (sizeMB > 500) {
+      console.error('❌ ERROR: File too large for browser!')
+      console.error('   Maximum recommended size: 500MB')
+      console.error('   Your file:', sizeMB.toFixed(1), 'MB')
+      
+      this.world.chat.add({
+        id: uuid(),
+        from: null,
+        fromId: null,
+        body: `Splat file too large (${sizeMB.toFixed(1)}MB). Maximum: 500MB. Browser may crash!`,
+        createdAt: moment().toISOString(),
+      })
+      
+      // Still try to load but warn user
+    }
     
     // cache file locally so this client can insta-load it  
     console.log('💾 Caching file with key:', url, 'size:', file.size)
@@ -955,7 +980,7 @@ app.on('update', () => {
       author: null,
       url: null,
       desc: `Gaussian Splat with positioning handle`,
-      model: null, // no model, just the script
+      model: 'script-only', // dummy model for splat apps to appear in list
       script: scriptUrl, // the GaussianSplat.js app script
       props: {},
       preload: false,

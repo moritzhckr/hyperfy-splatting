@@ -73,8 +73,8 @@ export class App extends Entity {
     }
     // otherwise we can load the model and script
     else {
-      // load model if present
-      if (blueprint.model && blueprint.model.trim() !== '') {
+      // load model if present (skip script-only dummy models)
+      if (blueprint.model && blueprint.model.trim() !== '' && blueprint.model !== 'script-only') {
         try {
           // check if it's a splat file
           if (blueprint.model.match(/\.(ply|splat|ksplat|spz)$/i)) {
