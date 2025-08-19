@@ -771,82 +771,22 @@ export class ClientBuilder extends System {
   }
 
   async addSplat(file, transform) {
-    // immutable hash the file
     const hash = await hashFile(file)
-    // preserve original extension for splat files
     const ext = file.name.split('.').pop().toLowerCase()
     const filename = `${hash}.${ext}`
-    // canonical url to this file
     const url = `asset://${filename}`
-    
-    console.log('🔥 Adding Spark.js splat file:', { filename, url, size: file.size })
-    
-    // Check file size limits for stability
     const sizeMB = file.size / (1024 * 1024)
-    console.log(`📄 Processing splat file: ${ext.toUpperCase()} format (${sizeMB.toFixed(1)}MB)`)
     
-    // Warn about large files
-    if (sizeMB > 100) {
-      console.warn('⚠️ WARNING: Very large splat file! This may cause browser crashes.')
-      console.warn('   File size:', sizeMB.toFixed(1), 'MB')
-      console.warn('   Recommended: < 50MB for stable performance')
-      console.warn('   Consider using compressed formats or reducing point density')
-    }
+    console.log(`📄 Processing ${ext.toUpperCase()} splat file: ${sizeMB.toFixed(1)}MB`)
     
-    if (sizeMB > 500) {
-      console.error('❌ ERROR: File too large for browser!')
-      console.error('   Maximum recommended size: 500MB')
-      console.error('   Your file:', sizeMB.toFixed(1), 'MB')
-      
-      this.world.chat.add({
-        id: uuid(),
-        from: null,
-        fromId: null,
-        body: `Splat file too large (${sizeMB.toFixed(1)}MB). Maximum: 500MB. Browser may crash!`,
-        createdAt: moment().toISOString(),
-      })
-      
-      // Still try to load but warn user
-    }
+    // Check file size and warn if necessary
+    this.validateSplatFileSize(sizeMB)
     
-    // cache file locally so this client can insta-load it  
-    console.log('💾 Caching file with key:', url, 'size:', file.size)
-    this.world.loader.insert('splat', url, file)
-    console.log('✅ File cached successfully')
+    // Cache file for immediate loading
+    this.cacheSplatFile(file, url)
     
-    // WORKAROUND: Also cache in files directly (since insert() is broken for splats)
-    console.log('🔧 WORKAROUND: Setting file directly in loader.files')
-    this.world.loader.setFile(url, file)
-    
-    // Debug URL resolution issue
-    const originalUrl = url
-    const resolvedUrl = this.world.resolveURL(url)
-    console.log('🔍 URL Resolution Debug:')
-    console.log('  Original URL:', originalUrl)
-    console.log('  Resolved URL:', resolvedUrl)
-    
-    // Try both URLs
-    const hasOriginal = this.world.loader.hasFile(originalUrl)
-    const hasResolved = this.world.loader.hasFile(resolvedUrl)
-    console.log('🔍 hasFile results:')
-    console.log('  Original URL hasFile:', hasOriginal)
-    console.log('  Resolved URL hasFile:', hasResolved)
-    
-    // Cache with BOTH URLs as workaround
-    console.log('🔧 Double cache workaround - setting both URLs')
-    this.world.loader.setFile(originalUrl, file)
-    this.world.loader.setFile(resolvedUrl, file)
-    
-    // Final check
-    const finalCheck = this.world.loader.hasFile(originalUrl) || this.world.loader.hasFile(resolvedUrl)
-    console.log('🔍 Final cache check - hasFile (any):', finalCheck)
-    
-    // Create inline script based on the actual GaussianSplat.js
-    // (fs.readFileSync doesn't work in browser, so we inline the content)
-    console.log('📝 Creating inline GaussianSplat.js script with pre-loaded file')
-    
-    let scriptContent
-    scriptContent = `
+    // Create inline script with pre-loaded file URL
+    const scriptContent = `
 /**
  * Gaussian Splat App v2 (Drag & Drop Version)
  * Identical to apps/GaussianSplat.js but with pre-loaded file
@@ -1286,6 +1226,33 @@ app.on('update', () => {
       quaternion = [0, 0, 0, 1]
     }
     return { position, quaternion }
+  }
+
+  validateSplatFileSize(sizeMB) {
+    if (sizeMB > 500) {
+      console.error(`❌ Splat file too large: ${sizeMB.toFixed(1)}MB (max: 500MB)`)
+      this.world.chat.add({
+        id: uuid(),
+        from: null,
+        fromId: null,
+        body: `Splat file too large (${sizeMB.toFixed(1)}MB). Maximum: 500MB. Browser may crash!`,
+        createdAt: moment().toISOString(),
+      })
+    } else if (sizeMB > 100) {
+      console.warn(`⚠️ Large splat file: ${sizeMB.toFixed(1)}MB. Recommended < 50MB for stability.`)
+    }
+  }
+
+  cacheSplatFile(file, url) {
+    // Primary cache
+    this.world.loader.insert('splat', url, file)
+    
+    // Workaround: Cache with both original and resolved URLs
+    const resolvedUrl = this.world.resolveURL(url)
+    this.world.loader.setFile(url, file)
+    this.world.loader.setFile(resolvedUrl, file)
+    
+    console.log('💾 Splat file cached successfully')
   }
 
   destroy() {

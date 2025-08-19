@@ -294,10 +294,7 @@ export class Stage extends System {
       if (fileType) {
         splatMeshOptions.fileType = fileType
       }
-      const splatMesh = new SplatMesh(splatMeshOptions)
-      
-      // Debug large splat files
-      console.log('🚀 SplatMesh created, waiting for load...')
+      console.log('🚀 Creating SplatMesh, setting up event listeners...')
       
       // Add timeout for large files (5 minutes max)
       const loadTimeout = setTimeout(() => {
@@ -306,14 +303,29 @@ export class Stage extends System {
         console.warn('   Consider using a smaller file or different format')
       }, 5 * 60 * 1000)
       
-      // Listen for load events
-      splatMesh.addEventListener('loaded', () => {
-        clearTimeout(loadTimeout) // Clear timeout on successful load
-        console.log('✅ Large splat file loaded successfully!')
-        console.log('  Splat count:', splatMesh.splatCount || 'unknown')
-        console.log('  Bounds:', splatMesh.boundingBox)
-        console.log('  Position:', splatMesh.position)
-        console.log('  Scale:', splatMesh.scale)
+      const splatMesh = new SplatMesh(splatMeshOptions)
+      
+      console.log('🔍 SplatMesh created, checking load state...')
+      
+      // Immediately check if already loaded (synchronous case)
+      const checkLoadedState = () => {
+        // Use the correct properties: numSplats, isInitialized, initialized
+        if (splatMesh.numSplats > 0 || splatMesh.isInitialized === true || splatMesh.initialized === true) {
+          clearTimeout(loadTimeout)
+          console.log('✅ Splat loaded immediately!')
+          logSplatInfo(splatMesh)
+          return true
+        }
+        return false
+      }
+      
+      // Helper function to log splat info
+      const logSplatInfo = (mesh) => {
+        console.log('  Splat count:', mesh.numSplats || 'unknown')
+        console.log('  Initialized:', mesh.isInitialized, mesh.initialized)
+        console.log('  Bounds:', mesh.getBoundingBox?.() || 'no getBoundingBox method')
+        console.log('  Position:', mesh.position)
+        console.log('  Scale:', mesh.scale)
         
         // Memory usage monitoring
         if (performance.memory) {
@@ -330,46 +342,54 @@ export class Stage extends System {
             console.warn('⚠️ High memory usage! Browser may become unstable.')
           }
         }
+      }
+      
+      // Check if already loaded
+      if (!checkLoadedState()) {
+        console.log('⏳ Splat loading asynchronously, waiting for completion...')
         
-        // Debug camera vs splat position
-        const camera = this.world.camera
-        if (camera) {
-          console.log('📷 Camera debug:')
-          console.log('  Camera position:', camera.position)
-          console.log('  Camera looking at:', camera.getWorldDirection(new THREE.Vector3()))
-          
-          // Calculate distance to splat
-          const distance = camera.position.distanceTo(splatMesh.position)
-          console.log('  Distance to splat:', distance.toFixed(2))
-          
-          // Auto-fit large scenes to viewport
-          if (splatMesh.boundingBox) {
-            const box = splatMesh.boundingBox
-            const size = box.getSize(new THREE.Vector3())
-            const maxDim = Math.max(size.x, size.y, size.z)
-            console.log('  Scene size:', size, 'max dimension:', maxDim.toFixed(2))
-            
-            // If scene is very large, suggest camera adjustment
-            if (maxDim > 50) {
-              console.log('⚠️ Large scene detected! You may need to move camera back or scale down')
-              console.log('  Suggested camera distance:', (maxDim * 2).toFixed(2))
-            }
-          }
+        // Listen for load events with multiple event names
+        const onLoaded = () => {
+          clearTimeout(loadTimeout)
+          console.log('✅ Splat file loaded via event!')
+          logSplatInfo(splatMesh)
         }
-      })
-      
-      splatMesh.addEventListener('error', (error) => {
-        console.error('❌ Splat loading error:', error)
-      })
-      
-      // Add progress tracking for large files
-      if (splatMesh.addEventListener) {
-        splatMesh.addEventListener('progress', (event) => {
-          if (event.loaded && event.total) {
-            const progress = (event.loaded / event.total * 100).toFixed(1)
-            console.log(`📊 Loading progress: ${progress}% (${event.loaded}/${event.total} bytes)`)
+        
+        // Try Spark.js specific events and common Three.js events
+        const eventNames = ['initialized', 'ready', 'loaded', 'load', 'complete', 'asyncInitialize']
+        eventNames.forEach(eventName => {
+          if (typeof splatMesh.addEventListener === 'function') {
+            splatMesh.addEventListener(eventName, onLoaded)
+            console.log(`📡 Registered event listener for: ${eventName}`)
           }
         })
+        
+        // Note: asyncInitialize() requires parameters, but splat loads automatically
+        
+        // Error handling
+        if (typeof splatMesh.addEventListener === 'function') {
+          splatMesh.addEventListener('error', (error) => {
+            clearTimeout(loadTimeout)
+            console.error('❌ Splat loading error:', error)
+          })
+        }
+        
+        // Light polling: Check load state every 2 seconds
+        let pollCount = 0
+        const pollInterval = setInterval(() => {
+          pollCount++
+          
+          if (checkLoadedState()) {
+            clearInterval(pollInterval)
+            console.log('✅ Splat loaded successfully!')
+          }
+          
+          // Stop polling after 15 checks (30 seconds)
+          if (pollCount >= 15) {
+            clearInterval(pollInterval)
+            console.log('⏰ Splat loading timeout - but may still be working')
+          }
+        }, 2000)
       }
       
       // Apply transform

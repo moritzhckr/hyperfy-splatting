@@ -58,62 +58,75 @@ const cubeHandle = app.create('prim', {
 })
 app.add(cubeHandle)
 
-// State for splat
-let splat = null
-let lastSplatFile = null
-let lastSortMode = null
-let lastShowCube = null
+// App state
+const state = {
+  splat: null,
+  lastSplatFile: null,
+  lastSortMode: null,
+  lastShowCube: null
+}
 
-app.on('update', () => {
-  // Update cube visibility only when changed
-  if (cubeHandle && typeof props.showCube !== 'undefined' && props.showCube !== lastShowCube) {
+// Helper functions
+function updateCubeVisibility() {
+  if (typeof props.showCube !== 'undefined' && props.showCube !== state.lastShowCube) {
     cubeHandle.visible = props.showCube
-    lastShowCube = props.showCube
+    state.lastShowCube = props.showCube
   }
-  
-  // Handle splat file changes
-  if (props.splatFile && typeof props.splatFile === 'string' && props.splatFile.startsWith('asset://')) {
-    // Only create new splat if the file changed
-    if (props.splatFile !== lastSplatFile) {
-      // Remove old splat if exists
-      if (splat && splat.parent) {
-        splat.parent.remove(splat)
-        splat = null
-      }
-      
-      // Create new splat (only once!)
-      try {
-        splat = app.create('gaussiansplat', {
-          src: props.splatFile,
-          sortMode: props.sortMode || 'auto',
-          linked: false
-        })
-        
-        // Rotate 180° around X-axis to fix splat orientation (if enabled)
-        if (props.autoRotate !== false) {
-          splat.rotation.x = Math.PI
-        }
-        
-        app.add(splat)
-        lastSplatFile = props.splatFile
-      } catch (error) {
-        console.error('❌ Failed to create splat:', error)
-      }
+}
+
+function createSplat() {
+  try {
+    state.splat = app.create('gaussiansplat', {
+      src: props.splatFile,
+      sortMode: props.sortMode || 'auto',
+      linked: false
+    })
+    
+    if (props.autoRotate !== false) {
+      state.splat.rotation.x = Math.PI
     }
     
-    // Update sort mode if it changed
-    if (splat && props.sortMode && props.sortMode !== lastSortMode) {
-      try {
-        splat.sortMode = props.sortMode
-        lastSortMode = props.sortMode
-      } catch (error) {
-        console.error('❌ Failed to update sort mode:', error)
-      }
+    app.add(state.splat)
+    state.lastSplatFile = props.splatFile
+  } catch (error) {
+    console.error('❌ Failed to create splat:', error)
+  }
+}
+
+function removeSplat() {
+  if (state.splat?.parent) {
+    state.splat.parent.remove(state.splat)
+    state.splat = null
+  }
+}
+
+function updateSplatFile() {
+  if (props.splatFile !== state.lastSplatFile) {
+    removeSplat()
+    createSplat()
+  }
+}
+
+function updateSortMode() {
+  if (state.splat && props.sortMode && props.sortMode !== state.lastSortMode) {
+    try {
+      state.splat.sortMode = props.sortMode
+      state.lastSortMode = props.sortMode
+    } catch (error) {
+      console.error('❌ Failed to update sort mode:', error)
     }
+  }
+}
+
+app.on('update', () => {
+  updateCubeVisibility()
+  
+  if (props.splatFile && typeof props.splatFile === 'string' && props.splatFile.startsWith('asset://')) {
+    updateSplatFile()
+    updateSortMode()
   }
 })
 
 console.log('🌟 Gaussian Splat app ready!')
-console.log('💡 Use the controls to upload a splat file or toggle cube visibility')
 
 } // end if (world.isClient)
