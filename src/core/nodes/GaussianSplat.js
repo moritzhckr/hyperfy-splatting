@@ -104,14 +104,31 @@ export class GaussianSplat extends Node {
         try {
           const response = await fetch(actualURL, { method: 'HEAD' })
           if (!response.ok) {
-            console.error('❌ Splat asset not found:', actualURL)
-            this.loadingState = 'error'
-            return
+            console.warn('⚠️ Splat asset not found on server:', actualURL)
+            console.log('🔄 Trying fallback to cached file...')
+            
+            // Fallback: Try to use cached file
+            const originalSrc = this.data?.src || this.data?.url || this._src
+            console.log('🔍 Looking for cached file with key:', originalSrc)
+            if (originalSrc && this.ctx.world.loader.hasFile(originalSrc)) {
+              const cachedFile = this.ctx.world.loader.getFile(originalSrc)
+              if (cachedFile) {
+                actualURL = URL.createObjectURL(cachedFile)
+                console.log('✅ Using cached file as fallback')
+              } else {
+                console.error('❌ No cached file available')
+                this.loadingState = 'error'
+                return
+              }
+            } else {
+              console.error('❌ No fallback available')
+              this.loadingState = 'error'
+              return
+            }
           }
         } catch (error) {
-          console.error('❌ Failed to load splat asset:', error)
-          this.loadingState = 'error'
-          return
+          console.error('❌ Failed to check splat asset availability:', error)
+          // Continue with the URL anyway - might work
         }
       }
     }

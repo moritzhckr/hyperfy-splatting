@@ -795,6 +795,10 @@ export class ClientBuilder extends System {
 // Only run on client - server doesn't have Spark.js or DOM APIs
 if (world.isClient) {
 
+console.log('🚀 GaussianSplat script starting...')
+console.log('  Props available:', Object.keys(props || {}))
+console.log('  splatFile:', props?.splatFile)
+
 app.configure([
   {
     key: 'splatFile',
@@ -859,9 +863,12 @@ app.on('update', () => {
   }
   
   // Handle splat file changes
+  console.log('🔄 Checking splat file:', props.splatFile)
   if (props.splatFile && typeof props.splatFile === 'string' && props.splatFile.startsWith('asset://')) {
+    console.log('✅ Valid splat file found, checking if changed...')
     // Only create new splat if the file changed
     if (props.splatFile !== lastSplatFile) {
+      console.log('🆕 Creating new splat for:', props.splatFile)
       // Remove old splat if exists
       if (splat && splat.parent) {
         splat.parent.remove(splat)
@@ -922,7 +929,10 @@ app.on('update', () => {
       desc: `Gaussian Splat with positioning handle`,
       model: 'script-only', // dummy model for splat apps to appear in list
       script: scriptUrl, // the GaussianSplat.js app script
-      props: {},
+      props: {
+        splatFile: url, // Direct URL for script usage
+        _splatFileAsset: { url }, // Additional reference for cleaner
+      },
       preload: false,
       public: false,
       locked: false,
@@ -949,15 +959,18 @@ app.on('update', () => {
     }
     
     console.log('📤 Uploading splat file and app script...')
+    console.log('  Splat file:', filename, 'size:', file.size)
+    console.log('  Script file:', scriptFilename)
     
     try {
       // upload both files in parallel FIRST
-      await Promise.all([
+      const uploadResults = await Promise.all([
         this.world.network.upload(file), // the splat file
         this.world.network.upload(new File([scriptContent], scriptFilename, { type: 'text/javascript' })) // the app script
       ])
       
       console.log('✅ Splat file and app uploaded successfully')
+      console.log('  Upload results:', uploadResults)
       
       // Create app AFTER upload is complete
       console.log('🚀 Creating splat app after successful upload')
@@ -970,6 +983,7 @@ app.on('update', () => {
       
     } catch (err) {
       console.error('❌ Failed to upload splat files:', err)
+      console.error('  Error details:', err.message, err.stack)
       // clean up failed app
       app.destroy()
     }
