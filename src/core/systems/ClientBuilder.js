@@ -808,7 +808,7 @@ app.configure([
   },
   {
     key: 'sortMode',
-    type: 'switch',
+    type: 'select',
     label: 'Sort Mode',
     initial: 'auto',
     options: [
@@ -831,6 +831,33 @@ app.configure([
     label: 'Auto-Rotate Splats',
     initial: true,
     hint: 'Automatically rotate splats 180° on X-axis for correct orientation'
+  },
+  {
+    key: 'color',
+    type: 'color',
+    label: 'Splat Color',
+    initial: '#ffffff',
+    hint: 'Tint color for the splats'
+  },
+  {
+    key: 'opacity',
+    type: 'range',
+    label: 'Splat Opacity',
+    initial: 1.0,
+    min: 0.0,
+    max: 1.0,
+    step: 0.01,
+    hint: 'Overall transparency of the splats'
+  },
+  {
+    key: 'falloff',
+    type: 'range',
+    label: 'Falloff',
+    initial: 1.0,
+    min: 0.1,
+    max: 5.0,
+    step: 0.1,
+    hint: 'Edge blending falloff for color/opacity effects'
   }
 ])
 
@@ -852,12 +879,16 @@ let splat = null
 let lastSplatFile = null
 let lastSortMode = null
 let lastShowCube = null
+let lastColor = null
+let lastOpacity = null
+let lastFalloff = null
 
 app.on('update', () => {
-  // Update cube visibility only when changed
+  // Update cube visibility only when changed (always check, not just when splat exists)
   if (cubeHandle && typeof props.showCube !== 'undefined' && props.showCube !== lastShowCube) {
     cubeHandle.visible = props.showCube
     lastShowCube = props.showCube
+    console.log('🎲 Cube visibility updated to:', props.showCube)
   }
   
   // Handle splat file changes
@@ -875,7 +906,10 @@ app.on('update', () => {
         splat = app.create('gaussiansplat', {
           src: props.splatFile,
           sortMode: props.sortMode || 'auto',
-          linked: false
+          linked: false,
+          color: props.color || '#ffffff',
+          opacity: props.opacity !== undefined ? props.opacity : 1.0,
+          falloff: props.falloff !== undefined ? props.falloff : 1.0
         })
         
         // Rotate 180° around X-axis to fix splat orientation (if enabled)
@@ -885,6 +919,9 @@ app.on('update', () => {
         
         app.add(splat)
         lastSplatFile = props.splatFile
+        lastColor = props.color
+        lastOpacity = props.opacity
+        lastFalloff = props.falloff
       } catch (error) {
         console.error('❌ Failed to create splat:', error)
       }
@@ -898,6 +935,36 @@ app.on('update', () => {
       } catch (error) {
         console.error('❌ Failed to update sort mode:', error)
       }
+    }
+  }
+  
+  // Update color if it changed (outside of splat file condition)
+  if (splat && props.color && props.color !== lastColor) {
+    try {
+      splat.color = props.color
+      lastColor = props.color
+    } catch (error) {
+      console.error('❌ Failed to update color:', error)
+    }
+  }
+  
+  // Update opacity if it changed (outside of splat file condition)
+  if (splat && props.opacity !== undefined && props.opacity !== lastOpacity) {
+    try {
+      splat.opacity = props.opacity
+      lastOpacity = props.opacity
+    } catch (error) {
+      console.error('❌ Failed to update opacity:', error)
+    }
+  }
+  
+  // Update falloff if it changed (outside of splat file condition)
+  if (splat && props.falloff !== undefined && props.falloff !== lastFalloff) {
+    try {
+      splat.falloff = props.falloff
+      lastFalloff = props.falloff
+    } catch (error) {
+      console.error('❌ Failed to update falloff:', error)
     }
   }
 })

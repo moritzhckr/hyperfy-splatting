@@ -7,6 +7,9 @@ const defaults = {
   castShadow: false,
   receiveShadow: false,
   sortMode: 'auto',
+  color: '#ffffff',
+  opacity: 1.0,
+  falloff: 1.0,
 }
 
 const sortModes = ['auto', 'distance', 'none']
@@ -21,6 +24,9 @@ export class GaussianSplat extends Node {
     this._castShadow = isBoolean(data.castShadow) ? data.castShadow : defaults.castShadow
     this._receiveShadow = isBoolean(data.receiveShadow) ? data.receiveShadow : defaults.receiveShadow
     this._sortMode = sortModes.includes(data.sortMode) ? data.sortMode : defaults.sortMode
+    this._color = isString(data.color) ? data.color : defaults.color
+    this._opacity = isNumber(data.opacity) ? Math.max(0, Math.min(1, data.opacity)) : defaults.opacity
+    this._falloff = isNumber(data.falloff) ? Math.max(0.1, data.falloff) : defaults.falloff
 
     this.loadingState = 'idle' // 'idle', 'loading', 'loaded', 'error'
     this.needsRebuild = false
@@ -134,7 +140,10 @@ export class GaussianSplat extends Node {
       url: actualURL,
       node: this,
       matrix: this.matrixWorld,
-      sortMode: this._sortMode
+      sortMode: this._sortMode,
+      color: this._color,
+      opacity: this._opacity,
+      falloff: this._falloff
     })
   }
 
@@ -145,6 +154,9 @@ export class GaussianSplat extends Node {
     this._castShadow = source._castShadow
     this._receiveShadow = source._receiveShadow
     this._sortMode = source._sortMode
+    this._color = source._color
+    this._opacity = source._opacity
+    this._falloff = source._falloff
     this.loadingState = source.loadingState
     return this
   }
@@ -222,9 +234,58 @@ export class GaussianSplat extends Node {
     }
     if (this._sortMode === value) return
     this._sortMode = value
-    if (this.handle) {
+    if (this.handle && this.handle.updateSortMode) {
+      this.handle.updateSortMode(value)
+    } else if (this.handle) {
       this.needsRebuild = true
       this.setDirty()
+    }
+  }
+
+  get color() {
+    return this._color
+  }
+
+  set color(value = defaults.color) {
+    if (!isString(value)) {
+      throw new Error('[gaussiansplat] color must be a string')
+    }
+    if (this._color === value) return
+    this._color = value
+    if (this.handle && this.handle.updateColor) {
+      this.handle.updateColor(value)
+    }
+  }
+
+  get opacity() {
+    return this._opacity
+  }
+
+  set opacity(value = defaults.opacity) {
+    if (!isNumber(value)) {
+      throw new Error('[gaussiansplat] opacity must be a number')
+    }
+    value = Math.max(0, Math.min(1, value))
+    if (this._opacity === value) return
+    this._opacity = value
+    if (this.handle && this.handle.updateOpacity) {
+      this.handle.updateOpacity(value)
+    }
+  }
+
+  get falloff() {
+    return this._falloff
+  }
+
+  set falloff(value = defaults.falloff) {
+    if (!isNumber(value)) {
+      throw new Error('[gaussiansplat] falloff must be a number')
+    }
+    value = Math.max(0.1, value)
+    if (this._falloff === value) return
+    this._falloff = value
+    if (this.handle && this.handle.updateFalloff) {
+      this.handle.updateFalloff(value)
     }
   }
 
@@ -264,6 +325,24 @@ export class GaussianSplat extends Node {
         },
         get loadingState() {
           return self.loadingState
+        },
+        get color() {
+          return self.color
+        },
+        set color(value) {
+          self.color = value
+        },
+        get opacity() {
+          return self.opacity
+        },
+        set opacity(value) {
+          self.opacity = value
+        },
+        get falloff() {
+          return self.falloff
+        },
+        set falloff(value) {
+          self.falloff = value
         },
       }
       proxy = Object.defineProperties(proxy, Object.getOwnPropertyDescriptors(super.getProxy()))

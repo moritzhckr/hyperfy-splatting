@@ -1,12 +1,9 @@
 /**
- * Gaussian Splat App v2
- * Simple and functional splat app with cube handle toggle
- * Based on model app pattern for reliable prop handling
+ * Gaussian Splat App v3
+ * Updated to match working app.configure pattern from prim_tester.js
  */
 
-// Only run on client - server doesn't have Spark.js or DOM APIs
-if (world.isClient) {
-
+// Configure props UI
 app.configure([
   {
     key: 'splatFile',
@@ -18,7 +15,7 @@ app.configure([
   },
   {
     key: 'sortMode',
-    type: 'switch',
+    type: 'select',
     label: 'Sort Mode',
     initial: 'auto',
     options: [
@@ -41,20 +38,50 @@ app.configure([
     label: 'Auto-Rotate Splats',
     initial: true,
     hint: 'Automatically rotate splats 180° on X-axis for correct orientation'
+  },
+  {
+    key: 'color',
+    type: 'color',
+    label: 'Splat Color',
+    initial: '#ffffff',
+    hint: 'Tint color for the splats'
+  },
+  {
+    key: 'opacity',
+    type: 'range',
+    label: 'Splat Opacity',
+    initial: 1.0,
+    min: 0.0,
+    max: 1.0,
+    step: 0.01,
+    hint: 'Overall transparency of the splats'
+  },
+  {
+    key: 'falloff',
+    type: 'range',
+    label: 'Falloff',
+    initial: 1.0,
+    min: 0.1,
+    max: 5.0,
+    step: 0.1,
+    hint: 'Edge blending falloff for color/opacity effects'
   }
 ])
+
+// Only run rendering logic on client
+if (world.isClient) {
 
 // Create cube handle immediately
 const cubeHandle = app.create('prim', {
   type: 'box',
   position: [0, 0, 0],
-  scale: [0.5, 0.5, 0.5], // Smaller cube for better performance
+  scale: [0.5, 0.5, 0.5],
   color: '#ffaa00',
-  opacity: 0.2, // Lower opacity to reduce GPU load
+  opacity: 0.2,
   transparent: true,
   castShadow: false,
   receiveShadow: false,
-  frustumCulled: true // Enable frustum culling
+  frustumCulled: true
 })
 app.add(cubeHandle)
 
@@ -63,7 +90,10 @@ const state = {
   splat: null,
   lastSplatFile: null,
   lastSortMode: null,
-  lastShowCube: null
+  lastShowCube: null,
+  lastColor: null,
+  lastOpacity: null,
+  lastFalloff: null
 }
 
 // Helper functions
@@ -79,7 +109,10 @@ function createSplat() {
     state.splat = app.create('gaussiansplat', {
       src: props.splatFile,
       sortMode: props.sortMode || 'auto',
-      linked: false
+      linked: false,
+      color: props.color || '#ffffff',
+      opacity: props.opacity !== undefined ? props.opacity : 1.0,
+      falloff: props.falloff !== undefined ? props.falloff : 1.0
     })
     
     if (props.autoRotate !== false) {
@@ -88,6 +121,9 @@ function createSplat() {
     
     app.add(state.splat)
     state.lastSplatFile = props.splatFile
+    state.lastColor = props.color
+    state.lastOpacity = props.opacity
+    state.lastFalloff = props.falloff
   } catch (error) {
     console.error('❌ Failed to create splat:', error)
   }
@@ -103,7 +139,10 @@ function removeSplat() {
 function updateSplatFile() {
   if (props.splatFile !== state.lastSplatFile) {
     removeSplat()
-    createSplat()
+    if (props.splatFile && typeof props.splatFile === 'string' && props.splatFile.startsWith('asset://')) {
+      createSplat()
+    }
+    state.lastSplatFile = props.splatFile
   }
 }
 
@@ -118,15 +157,56 @@ function updateSortMode() {
   }
 }
 
+function updateColor() {
+  if (state.splat && props.color && props.color !== state.lastColor) {
+    try {
+      state.splat.color = props.color
+      state.lastColor = props.color
+    } catch (error) {
+      console.error('❌ Failed to update color:', error)
+    }
+  }
+}
+
+function updateOpacity() {
+  if (state.splat && props.opacity !== undefined && props.opacity !== state.lastOpacity) {
+    try {
+      state.splat.opacity = props.opacity
+      state.lastOpacity = props.opacity
+    } catch (error) {
+      console.error('❌ Failed to update opacity:', error)
+    }
+  }
+}
+
+function updateFalloff() {
+  if (state.splat && props.falloff !== undefined && props.falloff !== state.lastFalloff) {
+    try {
+      state.splat.falloff = props.falloff
+      state.lastFalloff = props.falloff
+    } catch (error) {
+      console.error('❌ Failed to update falloff:', error)
+    }
+  }
+}
+
 app.on('update', () => {
   updateCubeVisibility()
-  
-  if (props.splatFile && typeof props.splatFile === 'string' && props.splatFile.startsWith('asset://')) {
-    updateSplatFile()
-    updateSortMode()
-  }
+  updateSplatFile()
+  updateSortMode()
+  updateColor()
+  updateOpacity()
+  updateFalloff()
 })
 
-console.log('🌟 Gaussian Splat app ready!')
+console.log('🌟 Gaussian Splat app ready with properties:', {
+  splatFile: 'file',
+  sortMode: 'select',
+  showCube: 'toggle', 
+  autoRotate: 'toggle',
+  color: 'color',
+  opacity: 'range',
+  falloff: 'range'
+})
 
 } // end if (world.isClient)

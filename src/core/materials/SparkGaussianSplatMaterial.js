@@ -15,11 +15,14 @@ export class SparkGaussianSplatMaterial {
       opacity: parameters.opacity || 1.0,
       sphericalHarmonics: parameters.sphericalHarmonics || true,
       sortMode: parameters.sortMode || 'auto',
+      color: parameters.color || '#ffffff',
+      falloff: parameters.falloff || 1.0,
       ...parameters
     }
     
     this.splatMesh = null
     this.sparkRenderer = null
+    this.splatEdit = null
     this.isSparkMaterial = true
     this.needsSort = parameters.sortMode !== 'none'
   }
@@ -27,7 +30,7 @@ export class SparkGaussianSplatMaterial {
   async loadFromURL(url) {
     try {
       // Dynamically import Spark.js
-      const { SplatMesh, SparkRenderer } = await import('@sparkjsdev/spark')
+      const { SplatMesh, SparkRenderer, SplatEdit } = await import('@sparkjsdev/spark')
       
       // Create Spark SplatMesh
       this.splatMesh = new SplatMesh({ 
@@ -38,6 +41,12 @@ export class SparkGaussianSplatMaterial {
       
       // Wait for loading to complete
       await this.splatMesh.loadFromURL(url)
+      
+      // Initialize SplatEdit for runtime modifications
+      this.splatEdit = new SplatEdit(this.splatMesh)
+      
+      // Apply initial material properties
+      this.applyMaterialProperties()
       
       return this.splatMesh
       
@@ -151,6 +160,68 @@ export class SparkGaussianSplatMaterial {
 
   updateTime(time) {
     // For any time-based animations
+  }
+
+  applyMaterialProperties() {
+    if (!this.splatEdit) return
+
+    // Apply color modification using SDF sphere
+    if (this.parameters.color !== '#ffffff') {
+      this.splatEdit.addEdit({
+        shape: 'sphere',
+        center: [0, 0, 0],
+        radius: 999, // Large radius to affect all splats
+        blendMode: 'MULTIPLY',
+        color: this.hexToRgba(this.parameters.color),
+        falloff: this.parameters.falloff
+      })
+    }
+
+    // Apply opacity modification
+    if (this.parameters.opacity !== 1.0) {
+      this.splatEdit.addEdit({
+        shape: 'sphere',
+        center: [0, 0, 0],
+        radius: 999,
+        blendMode: 'SET_ALPHA',
+        alpha: this.parameters.opacity,
+        falloff: this.parameters.falloff
+      })
+    }
+  }
+
+  hexToRgba(hex) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
+    return result ? [
+      parseInt(result[1], 16) / 255,
+      parseInt(result[2], 16) / 255,
+      parseInt(result[3], 16) / 255,
+      1.0
+    ] : [1, 1, 1, 1]
+  }
+
+  updateColor(color) {
+    this.parameters.color = color
+    if (this.splatEdit) {
+      this.splatEdit.clearEdits()
+      this.applyMaterialProperties()
+    }
+  }
+
+  updateOpacity(opacity) {
+    this.parameters.opacity = opacity
+    if (this.splatEdit) {
+      this.splatEdit.clearEdits()
+      this.applyMaterialProperties()
+    }
+  }
+
+  updateFalloff(falloff) {
+    this.parameters.falloff = falloff
+    if (this.splatEdit) {
+      this.splatEdit.clearEdits()
+      this.applyMaterialProperties()
+    }
   }
 
   getMesh() {
