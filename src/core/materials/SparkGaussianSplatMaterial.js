@@ -26,8 +26,6 @@ export class SparkGaussianSplatMaterial {
 
   async loadFromURL(url) {
     try {
-      console.log('🔥 Loading Gaussian Splat with Spark.js:', url)
-      
       // Dynamically import Spark.js
       const { SplatMesh, SparkRenderer } = await import('@sparkjsdev/spark')
       
@@ -41,7 +39,6 @@ export class SparkGaussianSplatMaterial {
       // Wait for loading to complete
       await this.splatMesh.loadFromURL(url)
       
-      console.log('✅ Spark.js SplatMesh loaded successfully')
       return this.splatMesh
       
     } catch (error) {
@@ -52,12 +49,6 @@ export class SparkGaussianSplatMaterial {
 
   async loadFromSplatData(splatData) {
     try {
-      console.log('🔥 Creating Spark.js SplatMesh from data:', {
-        count: splatData.count,
-        hasPositions: !!splatData.positions,
-        hasColors: !!splatData.colors
-      })
-      
       // Dynamically import Spark.js
       const { SplatMesh } = await import('@sparkjsdev/spark')
       
@@ -110,7 +101,6 @@ export class SparkGaussianSplatMaterial {
       // Apply scale
       this.splatMesh.scale.setScalar(this.parameters.splatScale)
       
-      console.log('✅ Spark.js SplatMesh created from generator')
       return this.splatMesh
       
     } catch (error) {

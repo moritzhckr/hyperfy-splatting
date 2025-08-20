@@ -248,7 +248,7 @@ fastify.post('/api/upload', async (req, reply) => {
   // upload
   await assets.upload(file)
   
-  console.log(`✅ Successfully uploaded: ${mp.filename}`)
+  // File uploaded successfully
 })
 
 fastify.get('/api/upload-check', async (req, reply) => {

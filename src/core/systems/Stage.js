@@ -262,7 +262,6 @@ export class Stage extends System {
     try {
       // Dynamically import Spark.js only on client
       const { SplatMesh, SplatLoader } = await import('@sparkjsdev/spark')
-      console.log('✅ Spark.js imported successfully on client')
       // Detect file type from original source URL first
       let fileType = null
       const srcUrl = node._src || url
@@ -277,7 +276,6 @@ export class Stage extends System {
       // because Spark.js needs the file extension to detect format
       let actualUrl = url
       if (fileType === 'ksplat' || fileType === 'splat') {
-        console.log('🔧 Using asset URL for KSPLAT/SPLAT (not blob URL)')
         actualUrl = this.world.resolveURL(srcUrl)
       } else {
         // For other formats: Use cached file if available
@@ -294,7 +292,6 @@ export class Stage extends System {
       if (fileType) {
         splatMeshOptions.fileType = fileType
       }
-      console.log('🚀 Creating SplatMesh, setting up event listeners...')
       
       // Add timeout for large files (5 minutes max)
       const loadTimeout = setTimeout(() => {
@@ -305,18 +302,11 @@ export class Stage extends System {
       
       const splatMesh = new SplatMesh(splatMeshOptions)
       
-      console.log('🔍 SplatMesh created, checking load state...')
-      console.log('  fileType:', fileType)
-      console.log('  actualUrl:', actualUrl)
-      console.log('  srcUrl:', srcUrl)
-      console.log('  splatMeshOptions:', splatMeshOptions)
-      
       // Immediately check if already loaded (synchronous case)
       const checkLoadedState = () => {
         // Use the correct properties: numSplats, isInitialized, initialized
         if (splatMesh.numSplats > 0 || splatMesh.isInitialized === true || splatMesh.initialized === true) {
           clearTimeout(loadTimeout)
-          console.log('✅ Splat loaded immediately!')
           logSplatInfo(splatMesh)
           return true
         }
@@ -325,22 +315,9 @@ export class Stage extends System {
       
       // Helper function to log splat info
       const logSplatInfo = (mesh) => {
-        console.log('  Splat count:', mesh.numSplats || 'unknown')
-        console.log('  Initialized:', mesh.isInitialized, mesh.initialized)
-        console.log('  Bounds:', mesh.getBoundingBox?.() || 'no getBoundingBox method')
-        console.log('  Position:', mesh.position)
-        console.log('  Scale:', mesh.scale)
-        
-        // Memory usage monitoring
+        // Memory usage monitoring for development
         if (performance.memory) {
           const memory = performance.memory
-          const usedMB = (memory.usedJSHeapSize / 1024 / 1024).toFixed(1)
-          const totalMB = (memory.totalJSHeapSize / 1024 / 1024).toFixed(1)
-          const limitMB = (memory.jsHeapSizeLimit / 1024 / 1024).toFixed(1)
-          console.log('🧠 Memory usage after splat load:')
-          console.log(`  Used: ${usedMB}MB / Total: ${totalMB}MB / Limit: ${limitMB}MB`)
-          
-          // Warn if approaching memory limit
           const memoryUsagePercent = (memory.usedJSHeapSize / memory.jsHeapSizeLimit) * 100
           if (memoryUsagePercent > 80) {
             console.warn('⚠️ High memory usage! Browser may become unstable.')
@@ -350,12 +327,9 @@ export class Stage extends System {
       
       // Check if already loaded
       if (!checkLoadedState()) {
-        console.log('⏳ Splat loading asynchronously, waiting for completion...')
-        
         // Listen for load events with multiple event names
         const onLoaded = () => {
           clearTimeout(loadTimeout)
-          console.log('✅ Splat file loaded via event!')
           logSplatInfo(splatMesh)
         }
         
@@ -364,26 +338,20 @@ export class Stage extends System {
         eventNames.forEach(eventName => {
           if (typeof splatMesh.addEventListener === 'function') {
             splatMesh.addEventListener(eventName, onLoaded)
-            console.log(`📡 Registered event listener for: ${eventName}`)
           }
         })
         
         // For KSPLAT/SPLAT files: Try manual asyncInitialize() with correct parameters
         if (fileType === 'ksplat' || fileType === 'splat') {
           if (typeof splatMesh.asyncInitialize === 'function') {
-            console.log('⚡ Calling asyncInitialize() for KSPLAT/SPLAT...')
             const initOptions = { url: actualUrl, fileType: fileType }
             splatMesh.asyncInitialize(initOptions).then(() => {
-              console.log('✅ asyncInitialize() completed for KSPLAT/SPLAT!')
               logSplatInfo(splatMesh)
             }).catch(error => {
               console.error('❌ asyncInitialize() failed for KSPLAT/SPLAT:', error)
-              console.error('  Error details:', error.message)
-              console.error('  Trying alternative initialization...')
               
               // Alternative: Try without options or with different options
               splatMesh.asyncInitialize().then(() => {
-                console.log('✅ Alternative asyncInitialize() worked!')
                 logSplatInfo(splatMesh)
               }).catch(err2 => {
                 console.error('❌ Alternative also failed:', err2.message)
@@ -404,21 +372,15 @@ export class Stage extends System {
         let pollCount = 0
         const pollInterval = setInterval(() => {
           pollCount++
-          console.log(`🔄 Poll ${pollCount}: numSplats=${splatMesh.numSplats}, isInitialized=${splatMesh.isInitialized}, fileType=${fileType}`)
           
           if (checkLoadedState()) {
             clearInterval(pollInterval)
-            console.log('✅ Splat loaded successfully!')
           }
           
           // Stop polling after 30 checks (60 seconds) for KSPLAT
           const maxPolls = (fileType === 'ksplat' || fileType === 'splat') ? 30 : 15
           if (pollCount >= maxPolls) {
             clearInterval(pollInterval)
-            console.log('⏰ Splat loading timeout - but may still be working')
-            console.log('  Final state: numSplats=', splatMesh.numSplats, 'isInitialized=', splatMesh.isInitialized)
-            console.log('  SplatMesh still exists:', !!splatMesh)
-            console.log('  Is in scene:', splatMesh.parent === this.scene)
           }
         }, 2000)
       }
