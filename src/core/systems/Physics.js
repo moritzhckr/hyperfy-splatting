@@ -235,6 +235,7 @@ export class Physics extends System {
               cb.fn = triggerHandle.onTriggerEnter
               cb.event.tag = otherHandle.tag
               cb.event.playerId = otherHandle.playerId
+              cb.event.isLocalPlayer = otherHandle.playerId === this.world.network.id
               this.triggerCallbacks.push(cb)
             }
             otherHandle.triggeredHandles.add(triggerHandle)
@@ -246,6 +247,7 @@ export class Physics extends System {
               cb.fn = triggerHandle.onTriggerLeave
               cb.event.tag = otherHandle.tag
               cb.event.playerId = otherHandle.playerId
+              cb.event.isLocalPlayer = otherHandle.playerId === this.world.network.id
               this.triggerCallbacks.push(cb)
             }
             otherHandle.triggeredHandles.delete(triggerHandle)

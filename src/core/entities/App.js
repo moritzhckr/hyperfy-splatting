@@ -10,6 +10,7 @@ import { ControlPriorities } from '../extras/ControlPriorities'
 import { getRef } from '../nodes/Node'
 import { Layers } from '../extras/Layers'
 import { createPlayerProxy } from '../extras/createPlayerProxy'
+import { serializeError } from '../extras/serializeError'
 
 const hotEventNames = ['fixedUpdate', 'update', 'lateUpdate']
 
@@ -35,7 +36,7 @@ export class App extends Entity {
     this.fields = []
     this.target = null
     this.projectLimit = Infinity
-    this.keepActive = false
+    this.resetOnMove = false
     this.playerProxies = new Map()
     this.hitResultsPool = []
     this.hitResults = []
@@ -143,18 +144,23 @@ export class App extends Entity {
     this.root.activate({ world: this.world, entity: this, moving: !!this.data.mover })
     // execute script
     const runScript =
-      (this.mode === Modes.ACTIVE && script && !crashed) || (this.mode === Modes.MOVING && this.keepActive)
+      script && !crashed && (this.mode === Modes.ACTIVE || (this.mode === Modes.MOVING && !this.resetOnMove))
+    // (this.mode === Modes.ACTIVE && script && !crashed) ||
+    // (this.mode === Modes.MOVING && !this.resetOnMove && !this.scriptError)
     if (runScript) {
       this.abortController = new AbortController()
       this.script = script
-      this.keepActive = false // allow script to re-enable
       try {
         this.script.exec(this.getWorldProxy(), this.getAppProxy(), this.fetch, blueprint.props, this.setTimeout)
+        this.scriptError = null
       } catch (err) {
+        this.scriptError = serializeError(err)
         console.error('script crashed')
         console.error(err)
         return this.crash()
       }
+    } else {
+      this.script = null
     }
     // if moving we need updates
     if (this.mode === Modes.MOVING) {
@@ -216,7 +222,7 @@ export class App extends Entity {
 
   fixedUpdate(delta) {
     // script fixedUpdate()
-    if (this.mode === Modes.ACTIVE && this.script) {
+    if (this.script) {
       try {
         this.emit('fixedUpdate', delta)
       } catch (err) {
@@ -236,7 +242,7 @@ export class App extends Entity {
       this.networkSca.update(delta)
     }
     // script update()
-    if (this.mode === Modes.ACTIVE && this.script) {
+    if (this.script) {
       try {
         this.emit('update', delta)
       } catch (err) {
@@ -249,7 +255,7 @@ export class App extends Entity {
   }
 
   lateUpdate(delta) {
-    if (this.mode === Modes.ACTIVE && this.script) {
+    if (this.script) {
       try {
         this.emit('lateUpdate', delta)
       } catch (err) {

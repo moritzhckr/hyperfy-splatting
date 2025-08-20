@@ -433,6 +433,10 @@ function Chat({ world }) {
           input {
             font-size: 0.9375rem;
             line-height: 1;
+            &::selection {
+              background-color: white;
+              color: black;
+            }
           }
         }
         .mainchat-send {

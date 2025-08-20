@@ -83,17 +83,6 @@ export class Stage extends System {
     }
     return this.models.get(id).create(node, matrix)
   }
-  
-  insertPrimitive({ geometry, material, castShadow, receiveShadow, node, matrix }) {
-    // Create a unique ID based on geometry and material for proper instancing
-    // Since materials are now cached in Prim.js, we can use the material's UUID directly
-    const id = `${geometry.uuid}/${material ? material.uuid : 'default'}/${castShadow}/${receiveShadow}/primitive`
-    if (!this.models.has(id)) {
-      const model = new Model(this, geometry, material, castShadow, receiveShadow)
-      this.models.set(id, model)
-    }
-    return this.models.get(id).create(node, matrix)
-  }
 
   insertSingle({ geometry, material, castShadow, receiveShadow, node, matrix }) {
     material = this.createMaterial({ raw: material })
@@ -505,7 +494,7 @@ class Model {
     this.iMesh.matrixWorldAutoUpdate = false
     this.iMesh.frustumCulled = false
     this.iMesh.getEntity = this.getEntity.bind(this)
-    this.items = [] // { matrix, node }
+    this.items = [] // { idx, node, matrix, color }
     this.dirty = true
   }
 
@@ -514,6 +503,7 @@ class Model {
       idx: this.items.length,
       node,
       matrix,
+      color: null,
       // octree
     }
     this.items.push(item)
@@ -532,6 +522,12 @@ class Model {
       move: matrix => {
         this.move(item, matrix)
         this.stage.octree.move(sItem)
+      },
+      setColor: value => {
+        if (!item.color) item.color = new THREE.Color()
+        item.color.set(value)
+        this.iMesh.setColorAt(item.idx, item.color)
+        this.iMesh.instanceColor.needsUpdate = true
       },
       destroy: () => {
         this.destroy(item)
@@ -560,6 +556,7 @@ class Model {
     } else {
       // there are other instances after this one in the buffer, swap it with the last one and pop it off the end
       this.iMesh.setMatrixAt(item.idx, last.matrix)
+      if (last.color) this.iMesh.setColorAt(item.idx, last.color)
       last.idx = item.idx
       this.items[item.idx] = last
       this.items.pop()
@@ -576,7 +573,9 @@ class Model {
       // console.log('increase', this.mesh.name, 'from', size, 'to', newSize)
       this.iMesh.resize(newSize)
       for (let i = size; i < count; i++) {
-        this.iMesh.setMatrixAt(i, this.items[i].matrix)
+        const item = this.items[i]
+        this.iMesh.setMatrixAt(i, item.matrix)
+        if (item.color) this.iMesh.setColorAt(i, item.color)
       }
     }
     this.iMesh.count = count
@@ -589,6 +588,9 @@ class Model {
       this.stage.scene.add(this.iMesh)
     }
     this.iMesh.instanceMatrix.needsUpdate = true
+    if (this.iMesh.instanceColor) {
+      this.iMesh.instanceColor.needsUpdate = true
+    }
     // this.iMesh.computeBoundingSphere()
     this.dirty = false
   }

@@ -53,13 +53,35 @@ export class Node {
     this.children = []
     this.ctx = null
     this.position = new THREE.Vector3()
-    this.position.fromArray(data.position || defaults.position)
+    if (data.position?.isVector3) {
+      this.position.copy(data.position)
+    } else {
+      this.position.fromArray(data.position || defaults.position)
+    }
+    this.rotation = new THREE.Euler(0, 0, 0, 'YXZ')
     this.quaternion = new THREE.Quaternion()
-    this.quaternion.fromArray(data.quaternion || defaults.quaternion)
-    this.rotation = new THREE.Euler().setFromQuaternion(this.quaternion)
-    this.rotation.reorder('YXZ')
+    if (data.rotation) {
+      if (data.rotation.isEuler) {
+        this.rotation.copy(data.rotation)
+      } else {
+        this.rotation.fromArray(data.rotation)
+      }
+      this.quaternion.setFromEuler(this.rotation)
+    }
+    if (data.quaternion) {
+      if (data.quaternion.isQuaternion) {
+        this.quaternion.copy(data.quaternion)
+      } else {
+        this.quaternion.fromArray(data.quaternion)
+      }
+      this.rotation.setFromQuaternion(this.quaternion)
+    }
     this.scale = new THREE.Vector3()
-    this.scale.fromArray(data.scale || defaults.scale)
+    if (data.scale?.isVector3) {
+      this.scale.copy(data.scale)
+    } else {
+      this.scale.fromArray(data.scale || defaults.scale)
+    }
     this.matrix = new THREE.Matrix4()
     this.matrixWorld = new THREE.Matrix4()
     this.position._onChange(() => {

@@ -91,10 +91,15 @@ export class ClientGraphics extends System {
     // this.aoPass.configuration.distanceFalloff = 1
     // this.aoPass.configuration.intensity = 2
     // look 3:
+    // this.aoPass.configuration.screenSpaceRadius = true
+    // this.aoPass.configuration.aoRadius = 32
+    // this.aoPass.configuration.distanceFalloff = 1
+    // this.aoPass.configuration.intensity = 2
+    // look 4:
     this.aoPass.configuration.screenSpaceRadius = true
-    this.aoPass.configuration.aoRadius = 32
-    this.aoPass.configuration.distanceFalloff = 1
-    this.aoPass.configuration.intensity = 2
+    this.aoPass.configuration.aoRadius = 64
+    this.aoPass.configuration.distanceFalloff = 0.3
+    this.aoPass.configuration.intensity = 1
     this.composer.addPass(this.aoPass)
     this.bloom = new BloomEffect({
       blendFunction: BlendFunction.ADD,

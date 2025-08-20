@@ -16,7 +16,6 @@ const defaults = {
   metalness: 0.2,
   roughness: 0.8,
   opacity: 1,
-  transparent: false,
   texture: null,
   castShadow: true,
   receiveShadow: true,
@@ -75,7 +74,7 @@ const getGeometry = (type, size) => {
       case 'sphere':
         {
           const [radius] = size
-          geometry = new THREE.SphereGeometry(radius, 16, 12)
+          geometry = new THREE.SphereGeometry(radius, 20, 12)
         }
         break
       case 'cylinder':
@@ -116,7 +115,7 @@ const materialCache = new Map()
 // Create material with specific properties
 const getMaterial = props => {
   // Create a cache key from material properties
-  const cacheKey = `${props.color}_${props.emissive}_${props.emissiveIntensity}_${props.metalness}_${props.roughness}_${props.opacity}_${props.transparent}_${props.texture}_${props.doubleside}`
+  const cacheKey = `${props.emissive}_${props.emissiveIntensity}_${props.metalness}_${props.roughness}_${props.opacity}_${props.texture}_${props.doubleside}`
 
   // Check cache first
   if (materialCache.has(cacheKey)) {
@@ -124,14 +123,20 @@ const getMaterial = props => {
   }
 
   const material = new THREE.MeshStandardMaterial({
-    color: props.color,
+    color: 0xffffff,
     emissive: props.emissive,
     emissiveIntensity: props.emissiveIntensity,
     metalness: props.metalness,
     roughness: props.roughness,
     opacity: props.opacity,
-    transparent: props.transparent,
+    transparent: props.opacity < 1,
     side: props.doubleside ? THREE.DoubleSide : THREE.FrontSide,
+    shadowSide: THREE.BackSide, // fix csm shadow banding
+
+    // fight z-fighting with fire (especially for AI generated objects)
+    polygonOffset: true,
+    polygonOffsetFactor: Math.random(),
+    polygonOffsetUnits: Math.random(),
   })
 
   // Cache the material
@@ -166,7 +171,6 @@ export class Prim extends Node {
     this.metalness = data.metalness
     this.roughness = data.roughness
     this.opacity = data.opacity
-    this.transparent = data.transparent
     this.texture = data.texture
     this.castShadow = data.castShadow
     this.receiveShadow = data.receiveShadow
@@ -209,40 +213,45 @@ export class Prim extends Node {
     this.scaleOffset.fromArray(scaleOffset)
     this.updateMatrixWorldOffset()
 
-    // Get unit-sized geometry for this type
-    const geometry = getGeometry(this._type, size)
+    // Create visual if visible
+    if (this._opacity > 0) {
+      // Get unit-sized geometry for this type
+      const geometry = getGeometry(this._type, size)
 
-    // Get loader if available (client-side only)
-    const loader = this.ctx.world.loader || null
+      // Get loader if available (client-side only)
+      const loader = this.ctx.world.loader || null
 
-    // Create material with current properties
-    const material = getMaterial({
-      color: this._color,
-      emissive: this._emissive,
-      emissiveIntensity: this._emissiveIntensity,
-      metalness: this._metalness,
-      roughness: this._roughness,
-      opacity: this._opacity,
-      transparent: this._transparent,
-      texture: this._texture,
-      doubleside: this._doubleside,
-    })
+      // Create material with current properties
+      const material = getMaterial({
+        // color: this._color,
+        emissive: this._emissive,
+        emissiveIntensity: this._emissiveIntensity,
+        metalness: this._metalness,
+        roughness: this._roughness,
+        opacity: this._opacity,
+        texture: this._texture,
+        doubleside: this._doubleside,
+      })
 
-    if (this._texture && !material._texApplied) {
-      const n = ++this.n
-      await applyTexture(material, this._texture, loader)
-      if (n !== this.n) return // remounted or destroyed
+      if (this._texture && !material._texApplied) {
+        const n = ++this.n
+        await applyTexture(material, this._texture, loader)
+        if (n !== this.n) return // remounted or destroyed
+      }
+
+      // Create mesh
+      this.handle = this.ctx.world.stage.insertLinked({
+        geometry,
+        material,
+        castShadow: this._castShadow,
+        receiveShadow: this._receiveShadow,
+        matrix: this.matrixWorldOffset,
+        // color: this._color,
+        node: this,
+      })
+      // console.log('FOO', this._color)
+      this.handle.setColor(this._color)
     }
-
-    // Create mesh
-    this.handle = this.ctx.world.stage.insertPrimitive({
-      geometry,
-      material,
-      castShadow: this._castShadow,
-      receiveShadow: this._receiveShadow,
-      matrix: this.matrixWorldOffset,
-      node: this,
-    })
 
     // Create physics if enabled
     if (this._physics && !this.ctx.moving) {
@@ -463,7 +472,6 @@ export class Prim extends Node {
     this._metalness = source._metalness
     this._roughness = source._roughness
     this._opacity = source._opacity
-    this._transparent = source._transparent
     this._texture = source._texture
     this._castShadow = source._castShadow
     this._receiveShadow = source._receiveShadow
@@ -662,22 +670,6 @@ export class Prim extends Node {
     }
     if (this._opacity === value) return
     this._opacity = value
-    if (this.handle) {
-      this.needsRebuild = true
-      this.setDirty()
-    }
-  }
-
-  get transparent() {
-    return this._transparent
-  }
-
-  set transparent(value = defaults.transparent) {
-    if (!isBoolean(value)) {
-      throw new Error('[prim] transparent must be boolean')
-    }
-    if (this._transparent === value) return
-    this._transparent = value
     if (this.handle) {
       this.needsRebuild = true
       this.setDirty()
@@ -974,10 +966,11 @@ export class Prim extends Node {
           self.opacity = value
         },
         get transparent() {
-          return self.transparent
+          // return self.transparent
         },
         set transparent(value) {
-          self.transparent = value
+          console.warn('prim.transparent deprecated')
+          // self.transparent = value
         },
         get texture() {
           return self.texture
