@@ -1,5 +1,6 @@
-import { SplatMesh, SparkRenderer } from '@sparkjsdev/spark'
 import * as THREE from '../extras/three'
+
+// Spark.js will be dynamically imported when needed
 
 /**
  * SparkGaussianSplatMaterial
@@ -27,6 +28,9 @@ export class SparkGaussianSplatMaterial {
     try {
       console.log('🔥 Loading Gaussian Splat with Spark.js:', url)
       
+      // Dynamically import Spark.js
+      const { SplatMesh, SparkRenderer } = await import('@sparkjsdev/spark')
+      
       // Create Spark SplatMesh
       this.splatMesh = new SplatMesh({ 
         url: url,
@@ -46,13 +50,16 @@ export class SparkGaussianSplatMaterial {
     }
   }
 
-  loadFromSplatData(splatData) {
+  async loadFromSplatData(splatData) {
     try {
       console.log('🔥 Creating Spark.js SplatMesh from data:', {
         count: splatData.count,
         hasPositions: !!splatData.positions,
         hasColors: !!splatData.colors
       })
+      
+      // Dynamically import Spark.js
+      const { SplatMesh } = await import('@sparkjsdev/spark')
       
       // For now, let's use a generator approach as shown in Spark.js docs
       // This creates a programmatic SplatMesh

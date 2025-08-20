@@ -1,9 +1,10 @@
 import * as THREE from '../extras/three'
 import { isNumber } from 'lodash-es'
-import { SplatMesh, SplatLoader } from '@sparkjsdev/spark'
 
 import { System } from './System'
 import { LooseOctree } from '../extras/LooseOctree'
+
+// Spark.js will be dynamically imported on client-side only
 
 const vec2 = new THREE.Vector2()
 
@@ -259,6 +260,9 @@ export class Stage extends System {
     }
     
     try {
+      // Dynamically import Spark.js only on client
+      const { SplatMesh, SplatLoader } = await import('@sparkjsdev/spark')
+      console.log('✅ Spark.js imported successfully on client')
       // Detect file type from original source URL first
       let fileType = null
       const srcUrl = node._src || url
