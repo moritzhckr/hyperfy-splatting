@@ -10,8 +10,8 @@ app.configure([
     type: 'file',
     label: 'Splat File',
     initial: null,
-    accept: '.ply,.splat,.ksplat,.spz',
-    hint: 'Upload PLY, KSPLAT, SPLAT, or SPZ file'
+    accept: '.ply,.splat,.ksplat,.spz,.sogs,.zip',
+    hint: 'Upload PLY, KSPLAT, SPLAT, SPZ, or SOGS file'
   },
   {
     key: 'sortMode',

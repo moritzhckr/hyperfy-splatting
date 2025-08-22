@@ -761,16 +761,20 @@ export class ClientBuilder extends System {
       const canPlace = this.canBuild()
       this.addAvatar(file, transform, canPlace)
     }
-    if (ext === 'ply' || ext === 'splat' || ext === 'ksplat' || ext === 'spz') {
-      // Show warning for SPZ files
+    if (ext === 'ply' || ext === 'splat' || ext === 'ksplat' || ext === 'spz' || ext === 'zip' || ext === 'sogs') {
+      // Show warnings for specific file types
       if (ext === 'spz') {
         console.warn('⚠️ SPZ files have limited support. PLY and KSPLAT formats work best.')
+      }
+      if (ext === 'zip') {
+        console.log('🎯 ZIP file detected - checking for SOGS format...')
       }
       this.addSplat(file, transform)
     }
   }
 
   async addSplat(file, transform) {
+    console.log('🎯 addSplat called with file:', file.name, 'size:', file.size)
     const hash = await hashFile(file)
     const ext = file.name.split('.').pop().toLowerCase()
     const filename = `${hash}.${ext}`
@@ -803,8 +807,8 @@ app.configure([
     type: 'file',
     label: 'Splat File',
     initial: '${url}',
-    accept: '.ply,.splat,.ksplat,.spz',
-    hint: 'Upload PLY, KSPLAT, SPLAT, or SPZ file'
+    accept: '.ply,.splat,.ksplat,.spz,.sogs,.zip',
+    hint: 'Upload PLY, KSPLAT, SPLAT, SPZ, or SOGS file'
   },
   {
     key: 'sortMode',

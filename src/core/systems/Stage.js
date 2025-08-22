@@ -269,13 +269,19 @@ export class Stage extends System {
         const ext = srcUrl.split('.').pop()?.toLowerCase()
         if (ext === 'ksplat' || ext === 'splat') {
           fileType = ext
+        } else if (ext === 'sogs') {
+          fileType = 'pcsogs'
+        } else if (ext === 'zip' && srcUrl.toLowerCase().includes('sogs')) {
+          fileType = 'pcsogszip'  // SOGS in ZIP format
+        } else if (ext === 'sogsz' || ext === 'sogszip') {
+          fileType = 'pcsogszip'  // Alternative SOGS ZIP extensions
         }
       }
       
-      // For KSPLAT/SPLAT: Use asset URL directly (not blob URL)
+      // For KSPLAT/SPLAT/SOGS: Use asset URL directly (not blob URL)
       // because Spark.js needs the file extension to detect format
       let actualUrl = url
-      if (fileType === 'ksplat' || fileType === 'splat') {
+      if (fileType === 'ksplat' || fileType === 'splat' || fileType === 'pcsogs' || fileType === 'pcsogszip') {
         actualUrl = this.world.resolveURL(srcUrl)
       } else {
         // For other formats: Use cached file if available
@@ -287,10 +293,11 @@ export class Stage extends System {
         }
       }
       
-      // Create SplatMesh with explicit fileType for KSPLAT/SPLAT files
+      // Create SplatMesh with explicit fileType for special formats
       const splatMeshOptions = { url: actualUrl }
       if (fileType) {
         splatMeshOptions.fileType = fileType
+        console.log('🎯 Loading splat with fileType:', fileType, 'from URL:', actualUrl)
       }
       
       // Add timeout for large files (5 minutes max)
@@ -341,14 +348,14 @@ export class Stage extends System {
           }
         })
         
-        // For KSPLAT/SPLAT files: Try manual asyncInitialize() with correct parameters
-        if (fileType === 'ksplat' || fileType === 'splat') {
+        // For KSPLAT/SPLAT/SOGS files: Try manual asyncInitialize() with correct parameters
+        if (fileType === 'ksplat' || fileType === 'splat' || fileType === 'pcsogs' || fileType === 'pcsogszip') {
           if (typeof splatMesh.asyncInitialize === 'function') {
             const initOptions = { url: actualUrl, fileType: fileType }
             splatMesh.asyncInitialize(initOptions).then(() => {
               logSplatInfo(splatMesh)
             }).catch(error => {
-              console.error('❌ asyncInitialize() failed for KSPLAT/SPLAT:', error)
+              console.error('❌ asyncInitialize() failed for format:', fileType, error)
               
               // Alternative: Try without options or with different options
               splatMesh.asyncInitialize().then(() => {
@@ -377,8 +384,8 @@ export class Stage extends System {
             clearInterval(pollInterval)
           }
           
-          // Stop polling after 30 checks (60 seconds) for KSPLAT
-          const maxPolls = (fileType === 'ksplat' || fileType === 'splat') ? 30 : 15
+          // Stop polling after 30 checks (60 seconds) for KSPLAT/SOGS
+          const maxPolls = (fileType === 'ksplat' || fileType === 'splat' || fileType === 'pcsogs' || fileType === 'pcsogszip') ? 30 : 15
           if (pollCount >= maxPolls) {
             clearInterval(pollInterval)
           }
