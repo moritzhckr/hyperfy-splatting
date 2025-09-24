@@ -56,16 +56,6 @@ app.configure([
     step: 0.01,
     hint: 'Overall transparency of the splats'
   },
-  {
-    key: 'falloff',
-    type: 'range',
-    label: 'Falloff',
-    initial: 1.0,
-    min: 0.1,
-    max: 5.0,
-    step: 0.1,
-    hint: 'Edge blending falloff for color/opacity effects'
-  }
 ])
 
 // Only run rendering logic on client
@@ -92,8 +82,7 @@ const state = {
   lastSortMode: null,
   lastShowCube: null,
   lastColor: null,
-  lastOpacity: null,
-  lastFalloff: null
+  lastOpacity: null
 }
 
 // Helper functions
@@ -111,8 +100,7 @@ function createSplat() {
       sortMode: props.sortMode || 'auto',
       linked: false,
       color: props.color || '#ffffff',
-      opacity: props.opacity !== undefined ? props.opacity : 1.0,
-      falloff: props.falloff !== undefined ? props.falloff : 1.0
+      opacity: props.opacity !== undefined ? props.opacity : 1.0
     })
     
     if (props.autoRotate !== false) {
@@ -123,7 +111,6 @@ function createSplat() {
     state.lastSplatFile = props.splatFile
     state.lastColor = props.color
     state.lastOpacity = props.opacity
-    state.lastFalloff = props.falloff
   } catch (error) {
     console.error('❌ Failed to create splat:', error)
   }
@@ -179,16 +166,7 @@ function updateOpacity() {
   }
 }
 
-function updateFalloff() {
-  if (state.splat && props.falloff !== undefined && props.falloff !== state.lastFalloff) {
-    try {
-      state.splat.falloff = props.falloff
-      state.lastFalloff = props.falloff
-    } catch (error) {
-      console.error('❌ Failed to update falloff:', error)
-    }
-  }
-}
+
 
 app.on('update', () => {
   updateCubeVisibility()
@@ -196,7 +174,6 @@ app.on('update', () => {
   updateSortMode()
   updateColor()
   updateOpacity()
-  updateFalloff()
 })
 
 console.log('🌟 Gaussian Splat app ready with properties:', {
@@ -205,8 +182,7 @@ console.log('🌟 Gaussian Splat app ready with properties:', {
   showCube: 'toggle', 
   autoRotate: 'toggle',
   color: 'color',
-  opacity: 'range',
-  falloff: 'range'
+  opacity: 'range'
 })
 
 } // end if (world.isClient)

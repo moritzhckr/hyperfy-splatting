@@ -853,16 +853,6 @@ app.configure([
     step: 0.01,
     hint: 'Overall transparency of the splats'
   },
-  {
-    key: 'falloff',
-    type: 'range',
-    label: 'Falloff',
-    initial: 1.0,
-    min: 0.1,
-    max: 5.0,
-    step: 0.1,
-    hint: 'Edge blending falloff for color/opacity effects'
-  }
 ])
 
 // Create cube handle immediately
@@ -885,7 +875,6 @@ let lastSortMode = null
 let lastShowCube = null
 let lastColor = null
 let lastOpacity = null
-let lastFalloff = null
 
 app.on('update', () => {
   // Update cube visibility only when changed (always check, not just when splat exists)
@@ -912,8 +901,7 @@ app.on('update', () => {
           sortMode: props.sortMode || 'auto',
           linked: false,
           color: props.color || '#ffffff',
-          opacity: props.opacity !== undefined ? props.opacity : 1.0,
-          falloff: props.falloff !== undefined ? props.falloff : 1.0
+          opacity: props.opacity !== undefined ? props.opacity : 1.0
         })
         
         // Rotate 180° around X-axis to fix splat orientation (if enabled)
@@ -925,7 +913,6 @@ app.on('update', () => {
         lastSplatFile = props.splatFile
         lastColor = props.color
         lastOpacity = props.opacity
-        lastFalloff = props.falloff
       } catch (error) {
         console.error('❌ Failed to create splat:', error)
       }
@@ -962,15 +949,7 @@ app.on('update', () => {
     }
   }
   
-  // Update falloff if it changed (outside of splat file condition)
-  if (splat && props.falloff !== undefined && props.falloff !== lastFalloff) {
-    try {
-      splat.falloff = props.falloff
-      lastFalloff = props.falloff
-    } catch (error) {
-      console.error('❌ Failed to update falloff:', error)
-    }
-  }
+  
 })
 
 

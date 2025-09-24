@@ -9,7 +9,6 @@ const defaults = {
   sortMode: 'auto',
   color: '#ffffff',
   opacity: 1.0,
-  falloff: 1.0,
 }
 
 const sortModes = ['auto', 'distance', 'none']
@@ -26,7 +25,6 @@ export class GaussianSplat extends Node {
     this._sortMode = sortModes.includes(data.sortMode) ? data.sortMode : defaults.sortMode
     this._color = isString(data.color) ? data.color : defaults.color
     this._opacity = isNumber(data.opacity) ? Math.max(0, Math.min(1, data.opacity)) : defaults.opacity
-    this._falloff = isNumber(data.falloff) ? Math.max(0.1, data.falloff) : defaults.falloff
 
     this.loadingState = 'idle' // 'idle', 'loading', 'loaded', 'error'
     this.needsRebuild = false
@@ -142,8 +140,7 @@ export class GaussianSplat extends Node {
       matrix: this.matrixWorld,
       sortMode: this._sortMode,
       color: this._color,
-      opacity: this._opacity,
-      falloff: this._falloff
+      opacity: this._opacity
     })
   }
 
@@ -156,7 +153,6 @@ export class GaussianSplat extends Node {
     this._sortMode = source._sortMode
     this._color = source._color
     this._opacity = source._opacity
-    this._falloff = source._falloff
     this.loadingState = source.loadingState
     return this
   }
@@ -273,21 +269,7 @@ export class GaussianSplat extends Node {
     }
   }
 
-  get falloff() {
-    return this._falloff
-  }
 
-  set falloff(value = defaults.falloff) {
-    if (!isNumber(value)) {
-      throw new Error('[gaussiansplat] falloff must be a number')
-    }
-    value = Math.max(0.1, value)
-    if (this._falloff === value) return
-    this._falloff = value
-    if (this.handle && this.handle.updateFalloff) {
-      this.handle.updateFalloff(value)
-    }
-  }
 
   getProxy() {
     if (!this.proxy) {
@@ -337,12 +319,6 @@ export class GaussianSplat extends Node {
         },
         set opacity(value) {
           self.opacity = value
-        },
-        get falloff() {
-          return self.falloff
-        },
-        set falloff(value) {
-          self.falloff = value
         },
       }
       proxy = Object.defineProperties(proxy, Object.getOwnPropertyDescriptors(super.getProxy()))

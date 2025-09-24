@@ -249,7 +249,7 @@ export class Stage extends System {
     return this.raycastHits
   }
 
-  async insertGaussianSplat({ url, node, matrix, sortMode = 'auto', color = '#ffffff', opacity = 1.0, falloff = 1.0 }) {
+  async insertGaussianSplat({ url, node, matrix, sortMode = 'auto', color = '#ffffff', opacity = 1.0 }) {
     // Only create SplatMesh on client
     if (this.world.network.isServer) {
       return {
@@ -415,61 +415,33 @@ export class Stage extends System {
         ] : [1, 1, 1, 1]
       }
 
-      // Apply color/opacity/falloff modifications using SplatEdit
-      let splatEdit = null
-      let colorSdf = null
-      let opacitySdf = null
+      // Apply color/opacity modifications using direct SplatMesh properties
+      let splatProperties = {
+        color: color,
+        opacity: opacity
+      }
       
       try {
-        const { SplatEdit, SplatEditSdf, SplatEditRgbaBlendMode, SplatEditSdfType } = await import('@sparkjsdev/spark')
         const THREE = await import('three')
         
-        // Create SplatEdit with MULTIPLY blend mode
-        splatEdit = new SplatEdit({
-          name: 'gaussian-splat-edit',
-          rgbaBlendMode: SplatEditRgbaBlendMode.MULTIPLY,
-          sdfSmooth: falloff > 1.0 ? falloff - 1.0 : 0.0, // Convert UI range to world-space units
-          softEdge: falloff > 1.0 ? falloff - 1.0 : 0.0   // Convert UI range to world-space units
-        })
-        
-        // Apply initial properties
-        const applyMaterialProperties = () => {
-          if (!splatEdit) return
-
-          // Clear existing SDF shapes
-          if (colorSdf) {
-            splatEdit.removeSdf(colorSdf)
-            colorSdf = null
-          }
-
-          // Create single SDF that combines color and opacity
-          const rgbaColor = color && color !== '#ffffff' ? hexToRgba(color) : [1, 1, 1, 1]
-          const finalOpacity = opacity !== undefined ? opacity : 1.0
-          
-          // Only create SDF if color is not white OR opacity is not 1.0
-          if ((color && color !== '#ffffff') || (opacity !== undefined && opacity !== 1.0)) {
-            // Use smaller radius so falloff effects are visible
-            const effectiveRadius = falloff > 2.0 ? 50 : 999  // Smaller radius for visible falloff
-            colorSdf = new SplatEditSdf({
-              type: SplatEditSdfType.SPHERE,
-              radius: effectiveRadius,
-              color: new THREE.Color(rgbaColor[0], rgbaColor[1], rgbaColor[2]),
-              opacity: finalOpacity
-            })
-            splatEdit.addSdf(colorSdf)
-          }
+        // Apply initial color using SplatMesh.recolor property
+        if (color && color !== '#ffffff') {
+          const colorObj = new THREE.Color(color)
+          // SplatMesh.recolor is a Vector3 that multiplies with splat colors
+          splatMesh.recolor.set(colorObj.r, colorObj.g, colorObj.b)
+          console.log('🎨 Applied initial recolor:', colorObj.r, colorObj.g, colorObj.b)
         }
-
-        // Apply initial properties
-        applyMaterialProperties()
         
-        // Add SplatEdit to scene
-        this.scene.add(splatEdit)
+        // Apply initial opacity using SplatMesh.opacity property
+        if (opacity !== undefined && opacity !== 1.0) {
+          splatMesh.opacity = opacity
+          console.log('🔍 Applied initial opacity:', opacity)
+        }
         
-        console.log('🎨 SplatEdit initialized with properties:', { color, opacity, falloff })
+        console.log('🎨 Direct SplatMesh properties initialized:', { color, opacity })
         
       } catch (error) {
-        console.warn('⚠️ SplatEdit not available, color/opacity modifications disabled:', error.message)
+        console.warn('⚠️ Failed to apply initial splat properties:', error.message)
       }
       
       // Return handle with update methods
@@ -481,124 +453,33 @@ export class Stage extends System {
         },
         updateColor: async (newColor) => {
           console.log('🎨 Updating splat color to:', newColor)
-          if (!splatEdit) return
-          color = newColor // Update stored value
+          splatProperties.color = newColor // Update stored value
           try {
-            // Remove existing combined SDF
-            if (colorSdf) {
-              splatEdit.removeSdf(colorSdf)
-              colorSdf = null
-            }
-            
-            // Create new combined SDF with color and opacity
-            const rgbaColor = newColor && newColor !== '#ffffff' ? hexToRgba(newColor) : [1, 1, 1, 1]
-            const finalOpacity = opacity !== undefined ? opacity : 1.0
-            
-            // Only create SDF if color is not white OR opacity is not 1.0
-            if ((newColor && newColor !== '#ffffff') || (opacity !== undefined && opacity !== 1.0)) {
-              const THREE = await import('three')
-              const { SplatEditSdf, SplatEditSdfType } = await import('@sparkjsdev/spark')
-              
-              // Use smaller radius so falloff effects are visible
-              const effectiveRadius = falloff > 2.0 ? 50 : 999
-              colorSdf = new SplatEditSdf({
-                type: SplatEditSdfType.SPHERE,
-                radius: effectiveRadius,
-                color: new THREE.Color(rgbaColor[0], rgbaColor[1], rgbaColor[2]),
-                opacity: finalOpacity
-              })
-              splatEdit.addSdf(colorSdf)
-            }
+            const THREE = await import('three')
+            const colorObj = new THREE.Color(newColor)
+            // Update SplatMesh.recolor property directly
+            splatMesh.recolor.set(colorObj.r, colorObj.g, colorObj.b)
+            console.log('🎨 Updated recolor:', colorObj.r, colorObj.g, colorObj.b)
           } catch (error) {
             console.warn('⚠️ Failed to update color:', error)
           }
         },
         updateOpacity: async (newOpacity) => {
           console.log('🔍 Updating splat opacity to:', newOpacity)
-          if (!splatEdit) return
-          opacity = newOpacity // Update stored value
+          splatProperties.opacity = newOpacity // Update stored value
           try {
-            // Remove existing combined SDF
-            if (colorSdf) {
-              splatEdit.removeSdf(colorSdf)
-              colorSdf = null
-            }
-            
-            // Create new combined SDF with color and opacity
-            const rgbaColor = color && color !== '#ffffff' ? hexToRgba(color) : [1, 1, 1, 1]
-            const finalOpacity = newOpacity !== undefined ? newOpacity : 1.0
-            
-            // Only create SDF if color is not white OR opacity is not 1.0
-            if ((color && color !== '#ffffff') || (newOpacity !== undefined && newOpacity !== 1.0)) {
-              const THREE = await import('three')
-              const { SplatEditSdf, SplatEditSdfType } = await import('@sparkjsdev/spark')
-              
-              // Use smaller radius so falloff effects are visible
-              const effectiveRadius = falloff > 2.0 ? 50 : 999
-              colorSdf = new SplatEditSdf({
-                type: SplatEditSdfType.SPHERE,
-                radius: effectiveRadius,
-                color: new THREE.Color(rgbaColor[0], rgbaColor[1], rgbaColor[2]),
-                opacity: finalOpacity
-              })
-              splatEdit.addSdf(colorSdf)
-            }
+            // Update SplatMesh.opacity property directly
+            splatMesh.opacity = newOpacity
+            console.log('🔍 Updated opacity:', newOpacity)
           } catch (error) {
             console.warn('⚠️ Failed to update opacity:', error)
           }
         },
-        updateFalloff: async (newFalloff) => {
-          console.log('📊 Updating splat falloff to:', newFalloff)
-          falloff = newFalloff // Update stored value
-          // Falloff affects the SplatEdit properties AND requires SDF recreation
-          if (splatEdit) {
-            try {
-              // Update SplatEdit properties
-              const worldSpaceFalloff = newFalloff * 2.0
-              splatEdit.sdfSmooth = worldSpaceFalloff
-              splatEdit.softEdge = worldSpaceFalloff
-              console.log('📊 Applied falloff values - sdfSmooth:', worldSpaceFalloff, 'softEdge:', worldSpaceFalloff)
-              
-              // Recreate SDF with new radius based on falloff
-              if (colorSdf) {
-                splatEdit.removeSdf(colorSdf)
-                colorSdf = null
-                
-                // Recreate combined SDF with falloff-dependent radius
-                const rgbaColor = color && color !== '#ffffff' ? hexToRgba(color) : [1, 1, 1, 1]
-                const finalOpacity = opacity !== undefined ? opacity : 1.0
-                
-                if ((color && color !== '#ffffff') || (opacity !== undefined && opacity !== 1.0)) {
-                  const THREE = await import('three')
-                  const { SplatEditSdf, SplatEditSdfType } = await import('@sparkjsdev/spark')
-                  
-                  // Use radius that varies with falloff for visible effects
-                  const effectiveRadius = newFalloff > 2.0 ? Math.max(10, 100 / newFalloff) : 999
-                  colorSdf = new SplatEditSdf({
-                    type: SplatEditSdfType.SPHERE,
-                    radius: effectiveRadius,
-                    color: new THREE.Color(rgbaColor[0], rgbaColor[1], rgbaColor[2]),
-                    opacity: finalOpacity
-                  })
-                  splatEdit.addSdf(colorSdf)
-                  console.log('📊 Recreated SDF with radius:', effectiveRadius)
-                }
-              }
-            } catch (error) {
-              console.warn('⚠️ Failed to update falloff:', error)
-            }
-          }
-        },
+        // Falloff property removed - was causing cross-splat contamination
         destroy: () => {
           this.scene.remove(splatMesh)
           this.splatMeshes.delete(id)
           splatMesh.dispose?.()
-          
-          // Clean up SplatEdit
-          if (splatEdit) {
-            this.scene.remove(splatEdit)
-            splatEdit.dispose?.()
-          }
         }
       }
       
