@@ -826,13 +826,13 @@ app.configure([
     key: 'showCube',
     type: 'toggle',
     label: 'Show Cube Handle',
-    initial: true,
+    initial: false,
     hint: 'Toggle visibility of positioning cube handle'
   },
   {
     key: 'autoRotate',
     type: 'toggle',
-    label: 'Auto-Rotate Splats',
+    label: 'Flip Splat along X-axis',
     initial: true,
     hint: 'Automatically rotate splats 180° on X-axis for correct orientation'
   },
@@ -855,7 +855,7 @@ app.configure([
   },
 ])
 
-// Create cube handle immediately
+// Create cube handle (don't add it initially since initial: false)
 const cubeHandle = app.create('prim', {
   type: 'box',
   position: [0, 0, 0],
@@ -866,20 +866,30 @@ const cubeHandle = app.create('prim', {
   castShadow: false,
   receiveShadow: false
 })
-app.add(cubeHandle)
+// Don't add to app initially since showCube starts as false
 
 // State for splat
 let splat = null
 let lastSplatFile = null
 let lastSortMode = null
-let lastShowCube = null
+let lastShowCube = false  // Initialize to match initial value
 let lastColor = null
 let lastOpacity = null
 
 app.on('update', () => {
   // Update cube visibility only when changed (always check, not just when splat exists)
   if (cubeHandle && typeof props.showCube !== 'undefined' && props.showCube !== lastShowCube) {
-    cubeHandle.visible = props.showCube
+    if (props.showCube) {
+      // Show cube by adding it back to the app
+      if (!cubeHandle.parent) {
+        app.add(cubeHandle)
+      }
+    } else {
+      // Hide cube by removing it from the app
+      if (cubeHandle.parent) {
+        cubeHandle.parent.remove(cubeHandle)
+      }
+    }
     lastShowCube = props.showCube
     console.log('🎲 Cube visibility updated to:', props.showCube)
   }
@@ -906,7 +916,9 @@ app.on('update', () => {
         
         // Rotate 180° around X-axis to fix splat orientation (if enabled)
         if (props.autoRotate !== false) {
-          splat.rotation.x = Math.PI
+          // Rotate the entire app instead of just the splat
+          // This way the transform values in the UI will be correct
+          app.rotation.x = Math.PI
         }
         
         app.add(splat)

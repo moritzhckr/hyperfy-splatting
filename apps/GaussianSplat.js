@@ -29,7 +29,7 @@ app.configure([
     key: 'showCube',
     type: 'toggle',
     label: 'Show Cube Handle',
-    initial: true,
+    initial: false,
     hint: 'Toggle visibility of positioning cube handle'
   },
   {
@@ -61,7 +61,7 @@ app.configure([
 // Only run rendering logic on client
 if (world.isClient) {
 
-// Create cube handle immediately
+// Create cube handle (don't add it initially since initial: false)
 const cubeHandle = app.create('prim', {
   type: 'box',
   position: [0, 0, 0],
@@ -73,23 +73,35 @@ const cubeHandle = app.create('prim', {
   receiveShadow: false,
   frustumCulled: true
 })
-app.add(cubeHandle)
+// Don't add to app initially since showCube starts as false
 
 // App state
 const state = {
   splat: null,
   lastSplatFile: null,
   lastSortMode: null,
-  lastShowCube: null,
+  lastShowCube: false,  // Initialize to match initial value
   lastColor: null,
-  lastOpacity: null
+  lastOpacity: null,
+  lastAutoRotate: null
 }
 
 // Helper functions
 function updateCubeVisibility() {
   if (typeof props.showCube !== 'undefined' && props.showCube !== state.lastShowCube) {
-    cubeHandle.visible = props.showCube
+    if (props.showCube) {
+      // Show cube by adding it back to the app
+      if (!cubeHandle.parent) {
+        app.add(cubeHandle)
+      }
+    } else {
+      // Hide cube by removing it from the app
+      if (cubeHandle.parent) {
+        cubeHandle.parent.remove(cubeHandle)
+      }
+    }
     state.lastShowCube = props.showCube
+    console.log('🎲 Cube visibility updated to:', props.showCube)
   }
 }
 
@@ -104,13 +116,16 @@ function createSplat() {
     })
     
     if (props.autoRotate !== false) {
-      state.splat.rotation.x = Math.PI
+      // Rotate the entire app instead of just the splat
+      // This way the transform values in the UI will be correct
+      app.rotation.x = Math.PI
     }
     
     app.add(state.splat)
     state.lastSplatFile = props.splatFile
     state.lastColor = props.color
     state.lastOpacity = props.opacity
+    state.lastAutoRotate = props.autoRotate
   } catch (error) {
     console.error('❌ Failed to create splat:', error)
   }
@@ -166,6 +181,25 @@ function updateOpacity() {
   }
 }
 
+function updateAutoRotate() {
+  if (props.autoRotate !== state.lastAutoRotate) {
+    try {
+      if (props.autoRotate) {
+        // Enable auto-rotate: rotate app 180° on X-axis
+        app.rotation.x = Math.PI
+        console.log('🔄 Auto-rotate enabled: app rotated 180°')
+      } else {
+        // Disable auto-rotate: reset app rotation
+        app.rotation.x = 0
+        console.log('🔄 Auto-rotate disabled: app rotation reset')
+      }
+      state.lastAutoRotate = props.autoRotate
+    } catch (error) {
+      console.error('❌ Failed to update auto-rotate:', error)
+    }
+  }
+}
+
 
 
 app.on('update', () => {
@@ -174,6 +208,7 @@ app.on('update', () => {
   updateSortMode()
   updateColor()
   updateOpacity()
+  updateAutoRotate()
 })
 
 console.log('🌟 Gaussian Splat app ready with properties:', {

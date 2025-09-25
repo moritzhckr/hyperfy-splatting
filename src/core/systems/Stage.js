@@ -326,8 +326,10 @@ export class Stage extends System {
         if (performance.memory) {
           const memory = performance.memory
           const memoryUsagePercent = (memory.usedJSHeapSize / memory.jsHeapSizeLimit) * 100
-          if (memoryUsagePercent > 80) {
-            console.warn('⚠️ High memory usage! Browser may become unstable.')
+          if (memoryUsagePercent > 90) {
+            console.warn('⚠️ High memory usage (' + Math.round(memoryUsagePercent) + '%)! Browser may become unstable.')
+          } else if (memoryUsagePercent > 75) {
+            console.info('ℹ️ Memory usage: ' + Math.round(memoryUsagePercent) + '%')
           }
         }
       }
