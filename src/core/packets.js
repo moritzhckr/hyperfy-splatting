@@ -23,6 +23,7 @@ const names = [
   'spawnModified',
   'modifyRank',
   'kick',
+  'ai',
   'ping',
   'pong',
 ]

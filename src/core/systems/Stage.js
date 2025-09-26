@@ -42,7 +42,7 @@ export class Stage extends System {
     this.scene.add(this.world.rig)
   }
 
-  update(delta) {
+  update(_delta) {
     this.models.forEach(model => model.clean())
   }
 
@@ -76,10 +76,10 @@ export class Stage extends System {
     }
   }
 
-  insertLinked({ geometry, material, castShadow, receiveShadow, node, matrix }) {
-    const id = `${geometry.uuid}/${material.uuid}/${castShadow}/${receiveShadow}`
+  insertLinked({ geometry, material, uberShader, castShadow, receiveShadow, node, matrix }) {
+    const id = `${geometry.uuid}/${material.uuid}/${uberShader}/${castShadow}/${receiveShadow}`
     if (!this.models.has(id)) {
-      const model = new Model(this, geometry, material, castShadow, receiveShadow)
+      const model = new Model(this, geometry, material, uberShader, castShadow, receiveShadow)
       this.models.set(id, model)
     }
     return this.models.get(id).create(node, matrix)
@@ -116,7 +116,6 @@ export class Stage extends System {
   }
 
   createMaterial(options = {}) {
-    const self = this
     const material = {}
     let raw
     if (options.raw) {
@@ -214,7 +213,8 @@ export class Stage extends System {
       //   return self.createMaterial(options).proxy
       // },
       get _ref() {
-        if (world._allowMaterial) return material
+        if (typeof globalThis.world !== 'undefined' && globalThis.world._allowMaterial) return material
+        return undefined
       },
     }
     material.raw = raw
@@ -249,7 +249,7 @@ export class Stage extends System {
     return this.raycastHits
   }
 
-  async insertGaussianSplat({ url, node, matrix, sortMode = 'auto', color = '#ffffff', opacity = 1.0 }) {
+  async insertGaussianSplat({ url, node, matrix, color = '#ffffff', opacity = 1.0 }) {
     // Only create SplatMesh on client
     if (this.world.network.isServer) {
       return {
@@ -261,7 +261,7 @@ export class Stage extends System {
     
     try {
       // Dynamically import Spark.js only on client
-      const { SplatMesh, SplatLoader } = await import('@sparkjsdev/spark')
+      const { SplatMesh } = await import('@sparkjsdev/spark')
       // Detect file type from original source URL first
       let fileType = null
       const srcUrl = node._src || url
@@ -297,13 +297,17 @@ export class Stage extends System {
       const splatMeshOptions = { url: actualUrl }
       if (fileType) {
         splatMeshOptions.fileType = fileType
+        // eslint-disable-next-line no-console
         console.log('🎯 Loading splat with fileType:', fileType, 'from URL:', actualUrl)
       }
       
       // Add timeout for large files (5 minutes max)
       const loadTimeout = setTimeout(() => {
+        // eslint-disable-next-line no-console
         console.warn('⏰ Splat loading timeout after 5 minutes')
+        // eslint-disable-next-line no-console
         console.warn('   File may be too large or corrupted')
+        // eslint-disable-next-line no-console
         console.warn('   Consider using a smaller file or different format')
       }, 5 * 60 * 1000)
       
@@ -321,14 +325,16 @@ export class Stage extends System {
       }
       
       // Helper function to log splat info
-      const logSplatInfo = (mesh) => {
+      const logSplatInfo = (_mesh) => {
         // Memory usage monitoring for development
         if (performance.memory) {
           const memory = performance.memory
           const memoryUsagePercent = (memory.usedJSHeapSize / memory.jsHeapSizeLimit) * 100
           if (memoryUsagePercent > 90) {
+            // eslint-disable-next-line no-console
             console.warn('⚠️ High memory usage (' + Math.round(memoryUsagePercent) + '%)! Browser may become unstable.')
           } else if (memoryUsagePercent > 75) {
+            // eslint-disable-next-line no-console
             console.info('ℹ️ Memory usage: ' + Math.round(memoryUsagePercent) + '%')
           }
         }
@@ -357,12 +363,14 @@ export class Stage extends System {
             splatMesh.asyncInitialize(initOptions).then(() => {
               logSplatInfo(splatMesh)
             }).catch(error => {
+              // eslint-disable-next-line no-console
               console.error('❌ asyncInitialize() failed for format:', fileType, error)
               
               // Alternative: Try without options or with different options
               splatMesh.asyncInitialize().then(() => {
                 logSplatInfo(splatMesh)
               }).catch(err2 => {
+                // eslint-disable-next-line no-console
                 console.error('❌ Alternative also failed:', err2.message)
               })
             })
@@ -373,6 +381,7 @@ export class Stage extends System {
         if (typeof splatMesh.addEventListener === 'function') {
           splatMesh.addEventListener('error', (error) => {
             clearTimeout(loadTimeout)
+            // eslint-disable-next-line no-console
             console.error('❌ Splat loading error:', error)
           })
         }
@@ -406,19 +415,9 @@ export class Stage extends System {
       const id = node.id || `splat_${Date.now()}`
       this.splatMeshes.set(id, splatMesh)
       
-      // Helper function to convert hex to RGBA (shared across all methods)
-      const hexToRgba = (hex) => {
-        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
-        return result ? [
-          parseInt(result[1], 16) / 255,
-          parseInt(result[2], 16) / 255,
-          parseInt(result[3], 16) / 255,
-          1.0
-        ] : [1, 1, 1, 1]
-      }
 
       // Apply color/opacity modifications using direct SplatMesh properties
-      let splatProperties = {
+      const splatProperties = {
         color: color,
         opacity: opacity
       }
@@ -431,15 +430,18 @@ export class Stage extends System {
           const colorObj = new THREE.Color(color)
           // SplatMesh.recolor is a Vector3 that multiplies with splat colors
           splatMesh.recolor.set(colorObj.r, colorObj.g, colorObj.b)
+          // eslint-disable-next-line no-console
           console.log('🎨 Applied initial recolor:', colorObj.r, colorObj.g, colorObj.b)
         }
         
         // Apply initial opacity using SplatMesh.opacity property
         if (opacity !== undefined && opacity !== 1.0) {
           splatMesh.opacity = opacity
+          // eslint-disable-next-line no-console
           console.log('🔍 Applied initial opacity:', opacity)
         }
         
+        // eslint-disable-next-line no-console
         console.log('🎨 Direct SplatMesh properties initialized:', { color, opacity })
         
       } catch (error) {
@@ -454,6 +456,7 @@ export class Stage extends System {
           splatMesh.updateMatrixWorld(true)
         },
         updateColor: async (newColor) => {
+          // eslint-disable-next-line no-console
           console.log('🎨 Updating splat color to:', newColor)
           splatProperties.color = newColor // Update stored value
           try {
@@ -461,17 +464,20 @@ export class Stage extends System {
             const colorObj = new THREE.Color(newColor)
             // Update SplatMesh.recolor property directly
             splatMesh.recolor.set(colorObj.r, colorObj.g, colorObj.b)
+            // eslint-disable-next-line no-console
             console.log('🎨 Updated recolor:', colorObj.r, colorObj.g, colorObj.b)
           } catch (error) {
             console.warn('⚠️ Failed to update color:', error)
           }
         },
         updateOpacity: async (newOpacity) => {
+          // eslint-disable-next-line no-console
           console.log('🔍 Updating splat opacity to:', newOpacity)
           splatProperties.opacity = newOpacity // Update stored value
           try {
             // Update SplatMesh.opacity property directly
             splatMesh.opacity = newOpacity
+            // eslint-disable-next-line no-console
             console.log('🔍 Updated opacity:', newOpacity)
           } catch (error) {
             console.warn('⚠️ Failed to update opacity:', error)
@@ -486,15 +492,29 @@ export class Stage extends System {
       }
       
     } catch (error) {
+      // eslint-disable-next-line no-console
       console.error('❌ SplatMesh creation failed:', error)
       return null
     }
   }
 
+  raycast(origin, direction, layers = this.maskNone, min = 0, max = Infinity) {
+    if (!this.viewport) throw new Error('no viewport')
+    vec2.x = 0
+    vec2.y = 0
+    this.raycaster.set(origin, direction)
+    this.raycaster.layers = layers
+    this.raycaster.near = min
+    this.raycaster.far = max
+    this.raycastHits.length = 0
+    this.octree.raycast(this.raycaster, this.raycastHits)
+    return this.raycastHits
+  }
+
   destroy() {
     this.models.clear()
     // Clean up splat meshes
-    for (const [id, splatMesh] of this.splatMeshes) {
+    for (const [_id, splatMesh] of this.splatMeshes) {
       this.scene.remove(splatMesh)
       if (splatMesh.dispose) {
         splatMesh.dispose()
@@ -505,12 +525,13 @@ export class Stage extends System {
 }
 
 class Model {
-  constructor(stage, geometry, material, castShadow, receiveShadow) {
+  constructor(stage, geometry, material, uberShader, castShadow, receiveShadow) {
     material = stage.createMaterial({ raw: material })
 
     this.stage = stage
-    this.geometry = geometry
+    this.geometry = geometry.clone() // important since uber shader needs unique buffer attributes
     this.material = material
+    this.uberShader = uberShader
     this.castShadow = castShadow
     this.receiveShadow = receiveShadow
 
@@ -536,6 +557,58 @@ class Model {
     this.iMesh.getEntity = this.getEntity.bind(this)
     this.items = [] // { idx, node, matrix, color }
     this.dirty = true
+
+    // uber shader extends to support more per-instance properties like emissive, emissiveItensity and anything else in the future
+    if (this.uberShader) {
+      const prev = this.material.raw.onBeforeCompile
+      // see: https://claude.ai/chat/b73be3e5-bb52-4da2-a47e-fbbf4f3eb54b
+      this.material.raw.onBeforeCompile = function (shader) {
+        prev?.(shader)
+        shader.vertexShader = shader.vertexShader.replace(
+          `#include <color_pars_vertex>`,
+          `
+          #include <color_pars_vertex>
+          #ifdef USE_UBER_SHADER
+            attribute vec3 instanceEmissive;
+            attribute float instanceEmissiveIntensity;
+            varying vec3 vInstanceEmissive;
+          #endif
+          `
+        )
+        shader.vertexShader = shader.vertexShader.replace(
+          `#include <color_vertex>`,
+          `
+          #include <color_vertex>
+          #ifdef USE_UBER_SHADER
+            vInstanceEmissive = instanceEmissive * instanceEmissiveIntensity;
+          #endif
+          `
+        )
+        shader.fragmentShader = shader.fragmentShader.replace(
+          `#include <color_pars_fragment>`,
+          `
+          #include <color_pars_fragment>
+          #ifdef USE_UBER_SHADER
+            varying vec3 vInstanceEmissive;
+          #endif
+          `
+        )
+        shader.fragmentShader = shader.fragmentShader.replace(
+          `vec3 totalEmissiveRadiance = emissive;`,
+          `
+          vec3 totalEmissiveRadiance = emissive;
+          #ifdef USE_UBER_SHADER
+            totalEmissiveRadiance = vInstanceEmissive;
+          #endif
+          `
+        )
+        // console.log(this)
+        // console.log(shader.vertexShader)
+        // console.log(shader.fragmentShader)
+      }
+      this.material.raw.defines.USE_UBER_SHADER = ''
+      this.material.raw.needsUpdate = true
+    }
   }
 
   create(node, matrix) {
@@ -544,6 +617,8 @@ class Model {
       node,
       matrix,
       color: null,
+      emissive: null,
+      emissiveIntensity: null,
       // octree
     }
     this.items.push(item)
@@ -568,6 +643,17 @@ class Model {
         item.color.set(value)
         this.iMesh.setColorAt(item.idx, item.color)
         this.iMesh.instanceColor.needsUpdate = true
+      },
+      setEmissive: value => {
+        if (!item.emissive) item.emissive = new THREE.Color()
+        item.emissive.set(value)
+        this.iMesh.setEmissiveAt(item.idx, item.emissive)
+        this.iMesh.instanceEmissive.needsUpdate = true
+      },
+      setEmissiveIntensity: value => {
+        item.emissiveIntensity = value
+        this.iMesh.setEmissiveIntensityAt(item.idx, item.emissiveIntensity)
+        this.iMesh.instanceEmissiveIntensity.needsUpdate = true
       },
       destroy: () => {
         this.destroy(item)
@@ -597,6 +683,10 @@ class Model {
       // there are other instances after this one in the buffer, swap it with the last one and pop it off the end
       this.iMesh.setMatrixAt(item.idx, last.matrix)
       if (last.color) this.iMesh.setColorAt(item.idx, last.color)
+      if (last.emissive) this.iMesh.setEmissiveAt(item.idx, last.emissive)
+      if (last.emissiveIntensity || last.emissiveIntensity === 0) {
+        this.iMesh.setEmissiveIntensityAt(item.idx, last.emissiveIntensity)
+      }
       last.idx = item.idx
       this.items[item.idx] = last
       this.items.pop()
@@ -616,6 +706,10 @@ class Model {
         const item = this.items[i]
         this.iMesh.setMatrixAt(i, item.matrix)
         if (item.color) this.iMesh.setColorAt(i, item.color)
+        if (item.emissive) this.iMesh.setEmissiveAt(i, item.emissive)
+        if (item.emissiveIntensity || item.emissiveIntensity === 0) {
+          this.iMesh.setEmissiveIntensityAt(i, item.emissiveIntensity)
+        }
       }
     }
     this.iMesh.count = count
@@ -630,6 +724,12 @@ class Model {
     this.iMesh.instanceMatrix.needsUpdate = true
     if (this.iMesh.instanceColor) {
       this.iMesh.instanceColor.needsUpdate = true
+    }
+    if (this.iMesh.instanceEmissive) {
+      this.iMesh.instanceEmissive.needsUpdate = true
+    }
+    if (this.iMesh.instanceEmissiveIntensity) {
+      this.iMesh.instanceEmissiveIntensity.needsUpdate = true
     }
     // this.iMesh.computeBoundingSphere()
     this.dirty = false

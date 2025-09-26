@@ -45,7 +45,7 @@ async function migrate(db) {
   if (!exists) {
     await db.schema.createTable('config', table => {
       table.string('key').primary()
-      table.string('value')
+      table.text('value')
     })
     await db('config').insert({ key: 'version', value: '0' })
   }
@@ -425,5 +425,20 @@ const migrations = [
     settings.customAvatars = false
     const value = JSON.stringify(settings)
     await db('config').where('key', 'settings').update({ value })
+  },
+  // change config table 'value' column from string(255) to text
+  async db => {
+    await db.transaction(async trx => {
+      // make replacement table
+      await trx.schema.createTable('_config_new', table => {
+        table.string('key').primary()
+        table.text('value') // in older versions this was string(255) but we want text
+      })
+      // copy everything over
+      await trx.raw('INSERT INTO _config_new (key, value) SELECT key, value FROM config')
+      // swap and destroy old
+      await trx.schema.dropTable('config')
+      await trx.schema.renameTable('_config_new', 'config')
+    })
   },
 ]

@@ -58,7 +58,7 @@ export class Entities extends System {
       this.player = entity
       this.world.emit('player', entity)
     }
-    this.emit('added')
+    this.emit('added', entity)
     return entity
   }
 
@@ -69,7 +69,7 @@ export class Entities extends System {
     entity.destroy()
     this.items.delete(id)
     this.removed.push(id)
-    this.emit('removed')
+    this.emit('removed', entity)
   }
 
   setHot(entity, hot) {

@@ -26,4 +26,40 @@ THREE.InstancedMesh.prototype.resize = function (size) {
     this.instanceColor = new THREE.InstancedBufferAttribute(colors, 3)
     this.instanceColor.needsUpdate = true
   }
+  if (this.instanceEmissive) {
+    const colors = new Float32Array(size * 3) // RGB values
+    colors.set(this.instanceEmissive.array)
+    this.instanceEmissive = new THREE.InstancedBufferAttribute(colors, 3)
+    this.instanceEmissive.needsUpdate = true
+    this.geometry.setAttribute('instanceEmissive', this.instanceEmissive)
+  }
+  if (this.instanceEmissiveIntensity) {
+    const values = new Float32Array(size) // floats
+    values.set(this.instanceEmissiveIntensity.array)
+    this.instanceEmissiveIntensity = new THREE.InstancedBufferAttribute(values, 1)
+    this.instanceEmissiveIntensity.needsUpdate = true
+    this.geometry.setAttribute('instanceEmissiveIntensity', this.instanceEmissiveIntensity)
+  }
+}
+
+THREE.InstancedMesh.prototype.setEmissiveAt = function (index, color) {
+  // similar to .setColorAt
+  if (!this.instanceEmissive) {
+    const colors = new Float32Array(this.instanceMatrix.count * 3)
+    this.instanceEmissive = new THREE.InstancedBufferAttribute(colors, 3)
+    this.geometry.setAttribute('instanceEmissive', this.instanceEmissive)
+  }
+  color.toArray(this.instanceEmissive.array, index * 3)
+  this.instanceEmissive.needsUpdate = true
+}
+
+THREE.InstancedMesh.prototype.setEmissiveIntensityAt = function (index, amount) {
+  // similar to .setColorAt
+  if (!this.instanceEmissiveIntensity) {
+    const values = new Float32Array(this.instanceMatrix.count)
+    this.instanceEmissiveIntensity = new THREE.InstancedBufferAttribute(values, 1)
+    this.geometry.setAttribute('instanceEmissiveIntensity', this.instanceEmissiveIntensity)
+  }
+  this.instanceEmissiveIntensity.array[index] = amount
+  this.instanceEmissiveIntensity.needsUpdate = true
 }

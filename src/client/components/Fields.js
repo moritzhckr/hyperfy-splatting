@@ -726,6 +726,7 @@ export function FieldVec3({
   max = Infinity,
   step = 1,
   bigStep = 2,
+  smallStep = 0.1,
   value,
   onChange,
 }) {
@@ -771,7 +772,7 @@ export function FieldVec3({
         padding: 0 1rem;
         cursor: text;
         .fieldvec3-label {
-          width: 9.4rem;
+          width: 7.4rem;
           flex-shrink: 0;
           white-space: nowrap;
           text-overflow: ellipsis;
@@ -816,13 +817,13 @@ export function FieldVec3({
               e.target.blur()
             }
             if (e.code === 'ArrowUp') {
-              const amount = e.shiftKey ? bigStep : step
+              const amount = e.shiftKey ? bigStep : e.altKey ? smallStep : step
               const num = parseStr(valueX + amount)
               setLocalX(num.toFixed(dp))
               onChange([+num.toFixed(dp), valueY, valueZ])
             }
             if (e.code === 'ArrowDown') {
-              const amount = e.shiftKey ? bigStep : step
+              const amount = e.shiftKey ? bigStep : e.altKey ? smallStep : step
               const num = parseStr(valueX - amount)
               setLocalX(num.toFixed(dp))
               onChange([+num.toFixed(dp), valueY, valueZ])
@@ -855,13 +856,13 @@ export function FieldVec3({
               e.target.blur()
             }
             if (e.code === 'ArrowUp') {
-              const amount = e.shiftKey ? bigStep : step
+              const amount = e.shiftKey ? bigStep : e.altKey ? smallStep : step
               const num = parseStr(valueY + amount)
               setLocalY(num.toFixed(dp))
               onChange([valueX, +num.toFixed(dp), valueZ])
             }
             if (e.code === 'ArrowDown') {
-              const amount = e.shiftKey ? bigStep : step
+              const amount = e.shiftKey ? bigStep : e.altKey ? smallStep : step
               const num = parseStr(valueY - amount)
               setLocalY(num.toFixed(dp))
               onChange([valueX, +num.toFixed(dp), valueZ])
@@ -894,13 +895,13 @@ export function FieldVec3({
               e.target.blur()
             }
             if (e.code === 'ArrowUp') {
-              const amount = e.shiftKey ? bigStep : step
+              const amount = e.shiftKey ? bigStep : e.altKey ? smallStep : step
               const num = parseStr(valueZ + amount)
               setLocalZ(num.toFixed(dp))
               onChange([valueX, valueY, +num.toFixed(dp)])
             }
             if (e.code === 'ArrowDown') {
-              const amount = e.shiftKey ? bigStep : step
+              const amount = e.shiftKey ? bigStep : e.altKey ? smallStep : step
               const num = parseStr(valueZ - amount)
               setLocalZ(num.toFixed(dp))
               onChange([valueX, valueY, +num.toFixed(dp)])

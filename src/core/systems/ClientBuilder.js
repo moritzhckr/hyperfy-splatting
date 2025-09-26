@@ -12,15 +12,18 @@ import { uuid } from '../utils'
 import { ControlPriorities } from '../extras/ControlPriorities'
 import { importApp } from '../extras/appTools'
 import { DEG2RAD, RAD2DEG } from '../extras/general'
+import { createNode } from '../extras/createNode'
 
 const FORWARD = new THREE.Vector3(0, 0, -1)
 const SNAP_DISTANCE = 1
 const SNAP_DEGREES = 5
 const PROJECT_SPEED = 10
 const PROJECT_MIN = 3
+const PROJECT_MIN_XR = 0.1
 const PROJECT_MAX = 50
 
 const v1 = new THREE.Vector3()
+const v2 = new THREE.Vector3()
 const q1 = new THREE.Quaternion()
 const e1 = new THREE.Euler()
 
@@ -43,12 +46,17 @@ export class ClientBuilder extends System {
   constructor(world) {
     super(world)
     this.enabled = false
+    this.beam = new THREE.Object3D()
     this.selected = null
     this.mode = 'grab'
     this.localSpace = false
     this.target = new THREE.Object3D()
     this.target.rotation.reorder('YXZ')
     this.lastMoveSendTime = 0
+
+    this.createXRMenu()
+    this.xrLaser = null
+    this.xrMenuTimer = 0
 
     this.undos = []
 
@@ -75,6 +83,13 @@ export class ClientBuilder extends System {
         this.control.pointer.lock()
         this.justPointerLocked = true
         return true // capture
+      }
+    }
+    this.control.backquote.onPress = () => {
+      if (this.control.pointer.locked) {
+        this.control.pointer.unlock()
+      } else {
+        this.control.pointer.lock()
       }
     }
     this.updateActions()
@@ -141,6 +156,9 @@ export class ClientBuilder extends System {
   }
 
   update(delta) {
+    const player = this.world.entities.player
+    if (!player) return
+    const xr = player.isXR
     // toggle build
     if (this.control.tab.pressed) {
       this.toggle()
@@ -153,13 +171,68 @@ export class ClientBuilder extends System {
     if (this.selected && this.selected?.data.mover !== this.world.network.id) {
       this.select(null)
     }
-    // stop here if build mode not enabled
-    if (!this.enabled) {
+    // non-xr if not in build mode, stop here
+    if (!xr && !this.enabled) {
       return
     }
+    // xr if not a builder, stop here
+    if (xr && !this.canBuild()) {
+      return
+    }
+    // xr and non-xr beam
+    // in xr this is the laser when holding trigger
+    // otherwise its the reticle when pointer locked
+    if (xr) {
+      if (this.control.xrLeftTrigger.value) {
+        this.beam.xr = true
+        this.beam.kind = 'xrLeft'
+        this.beam.position.copy(this.control.xrLeftRayPose.position)
+        this.beam.quaternion.copy(this.control.xrLeftRayPose.quaternion)
+        this.beam.active = true
+      } else if (this.control.xrRightTrigger.value) {
+        this.beam.xr = true
+        this.beam.kind = 'xrRight'
+        this.beam.position.copy(this.control.xrRightRayPose.position)
+        this.beam.quaternion.copy(this.control.xrRightRayPose.quaternion)
+        this.beam.active = true
+      } else {
+        this.beam.xr = false
+        // this.beam.kind = null
+        this.beam.active = false
+      }
+    } else if (this.control.pointer.locked) {
+      this.beam.xr = false
+      this.beam.kind = 'reticle'
+      this.beam.position.copy(this.world.rig.position)
+      this.beam.quaternion.copy(this.world.rig.quaternion)
+      this.beam.active = true
+    } else {
+      this.beam.xr = false
+      // this.beam.kind = null
+      this.beam.active = false
+      // this.beam.pressed = false
+    }
+    // xr menu open
+    if (this.beam.xr && this.beam.active && this.xrMenu.state === 'closed') {
+      this.xrMenuTimer += delta
+      if (this.xrMenuTimer > 0.6) {
+        this.xrMenu.open(this.beam.kind)
+      }
+    } else if (xr) {
+      this.xrMenuTimer = 0
+    }
+    // xr menu close
+    if (this.xrMenu.state !== 'closed' && !this.beam.active) {
+      this.xrMenu.close()
+    }
+    // xr menu updates
+    if (xr) {
+      this.xrMenu.update(delta)
+      this.updateXRLaser(delta)
+    }
     // inspect in pointer-lock
-    if (this.control.mouseRight.pressed && this.control.pointer.locked) {
-      const entity = this.getEntityAtReticle()
+    if (this.beam.active && this.control.mouseRight.pressed) {
+      const entity = this.getEntityAtBeam()
       if (entity?.isApp) {
         this.select(null)
         this.control.pointer.unlock()
@@ -172,8 +245,8 @@ export class ClientBuilder extends System {
       }
     }
     // inspect out of pointer-lock
-    else if (!this.selected && !this.control.pointer.locked && this.control.mouseRight.pressed) {
-      const entity = this.getEntityAtPointer()
+    else if (!this.selected && !this.beam.active && this.control.mouseRight.pressed) {
+      const entity = this.getEntityAtCursor()
       if (entity?.isApp) {
         this.select(null)
         this.control.pointer.unlock()
@@ -186,8 +259,8 @@ export class ClientBuilder extends System {
       }
     }
     // unlink
-    if (this.control.keyU.pressed && this.control.pointer.locked) {
-      const entity = this.selected || this.getEntityAtReticle()
+    if (this.control.keyU.pressed && this.beam.active) {
+      const entity = this.selected || this.getEntityAtBeam()
       if (entity?.isApp) {
         this.select(null)
         // duplicate the blueprint
@@ -219,8 +292,8 @@ export class ClientBuilder extends System {
       }
     }
     // pin/unpin
-    if (this.control.keyP.pressed && this.control.pointer.locked) {
-      const entity = this.selected || this.getEntityAtReticle()
+    if (this.control.keyP.pressed && this.beam.active) {
+      const entity = this.selected || this.getEntityAtBeam()
       if (entity?.isApp) {
         entity.data.pinned = !entity.data.pinned
         this.world.network.send('entityModified', {
@@ -254,10 +327,17 @@ export class ClientBuilder extends System {
       this.setMode('scale')
     }
     // left-click place/select/reselect/deselect
-    if (!this.justPointerLocked && this.control.pointer.locked && this.control.mouseLeft.pressed) {
+    if (this.xrMenu && this.xrMenu.move) {
+      this.xrMenu.move = false
+      const entity = this.getEntityAtBeam()
+      if (entity?.isApp && !entity.data.pinned && !entity.blueprint.scene) {
+        this.select(entity)
+      }
+    }
+    if (!this.justPointerLocked && this.beam.active && this.control.mouseLeft.pressed) {
       // if nothing selected, attempt to select
       if (!this.selected) {
-        const entity = this.getEntityAtReticle()
+        const entity = this.getEntityAtBeam()
         if (entity?.isApp && !entity.data.pinned && !entity.blueprint.scene) this.select(entity)
       }
       // if selected in grab mode, place
@@ -270,24 +350,31 @@ export class ClientBuilder extends System {
         (this.mode === 'translate' || this.mode === 'rotate' || this.mode === 'scale') &&
         !this.gizmoActive
       ) {
-        const entity = this.getEntityAtReticle()
+        const entity = this.getEntityAtBeam()
         if (entity?.isApp && !entity.data.pinned && !entity.blueprint.scene) this.select(entity)
         else this.select(null)
       }
     }
     // deselect on pointer unlock
-    if (this.selected && !this.control.pointer.locked) {
+    if (this.selected && !this.beam.active) {
       this.select(null)
     }
     // duplicate
-    if (
+    let duplicate
+    if (this.xrMenu?.copy) {
+      this.xrMenu.copy = false
+      duplicate = true
+    } else if (
       !this.justPointerLocked &&
-      this.control.pointer.locked &&
+      this.beam.active &&
       this.control.keyR.pressed &&
       !this.control.metaLeft.down &&
       !this.control.controlLeft.down
     ) {
-      const entity = this.selected || this.getEntityAtReticle()
+      duplicate = true
+    }
+    if (duplicate) {
+      const entity = this.selected || this.getEntityAtBeam()
       if (entity?.isApp && !entity.blueprint.scene) {
         let blueprintId = entity.data.blueprint
         // if unique, we also duplicate the blueprint
@@ -335,8 +422,15 @@ export class ClientBuilder extends System {
       }
     }
     // destroy
-    if (this.control.keyX.pressed) {
-      const entity = this.selected || this.getEntityAtReticle()
+    let destroy
+    if (this.xrMenu.delete) {
+      destroy = true
+      this.xrMenu.delete = false
+    } else if (this.control.keyX.pressed) {
+      destroy = true
+    }
+    if (destroy) {
+      const entity = this.selected || this.getEntityAtBeam()
       if (entity?.isApp && !entity.data.pinned && !entity.blueprint.scene) {
         this.select(null)
         this.addUndo({
@@ -387,34 +481,63 @@ export class ClientBuilder extends System {
     // grab updates
     if (this.selected && this.mode === 'grab') {
       const app = this.selected
-      const hit = this.getHitAtReticle(app, true)
+      const hit = this.getHitAtBeam(app, true)
       // place at distance
-      const camPos = this.world.rig.position
-      const camDir = v1.copy(FORWARD).applyQuaternion(this.world.rig.quaternion)
-      const hitDistance = hit ? hit.point.distanceTo(camPos) : 0
+      const beamPos = this.beam.position
+      const beamDir = v1.copy(FORWARD).applyQuaternion(this.beam.quaternion)
+      const hitDistance = hit ? hit.point.distanceTo(beamPos) : 0
       if (hit && hitDistance < this.target.limit) {
         // within range, use hit point
         this.target.position.copy(hit.point)
       } else {
         // no hit, project to limit
-        this.target.position.copy(camPos).add(camDir.multiplyScalar(this.target.limit))
+        this.target.position.copy(beamPos).add(beamDir.multiplyScalar(this.target.limit))
       }
-      // if holding F/C then push or pull
-      let project = this.control.keyF.down ? 1 : this.control.keyC.down ? -1 : null
+      // push and pull (F/C keys or XR stick up/down)
+      let project = 0
+      if (this.control.keyF.down) project += this.control.shiftLeft.down ? 4 : 1
+      if (this.control.keyC.down) project -= this.control.shiftLeft.down ? 4 : 1
+      if (xr) {
+        const stick = this.beam.kind === 'xrLeft' ? this.control.xrLeftStick.value : this.control.xrRightStick.value
+        if (stick.z < -0.4) project += Math.abs(stick.z) * 4
+        if (stick.z > 0.4) project -= stick.z * 4
+      }
       if (project) {
-        const multiplier = this.control.shiftLeft.down ? 4 : 1
-        this.target.limit += project * PROJECT_SPEED * delta * multiplier
-        if (this.target.limit < PROJECT_MIN) this.target.limit = PROJECT_MIN
+        this.target.limit += project * PROJECT_SPEED * delta
+        const min = xr ? PROJECT_MIN_XR : PROJECT_MIN
+        if (this.target.limit < min) this.target.limit = min
         if (hitDistance && this.target.limit > hitDistance) this.target.limit = hitDistance
       }
-      // shift + mouse wheel scales
+      // scale (shift + mouse wheel or XR grip + left/right)
+      let scale = 0
       if (this.control.shiftLeft.down) {
-        const scaleFactor = 1 + this.control.scrollDelta.value * 0.1 * delta
+        scale = this.control.scrollDelta.value * 0.1
+      }
+      if (xr) {
+        const grip = this.beam.kind === 'xrLeft' ? this.control.xrLeftGrip : this.control.xrRightGrip
+        const stick = this.beam.kind === 'xrLeft' ? this.control.xrLeftStick.value : this.control.xrRightStick.value
+        if (grip.down && Math.abs(stick.x) > 0.4) {
+          scale = stick.x * 1.2
+        }
+      }
+      if (scale) {
+        const scaleFactor = 1 + scale * delta
         this.target.scale.multiplyScalar(scaleFactor)
       }
-      // !shift + mouse wheel rotates
-      else {
-        this.target.rotation.y += this.control.scrollDelta.value * 0.1 * delta
+      // rotate (!shift + mouse wheel OR xr !grip stick left/right)
+      let rotate = 0
+      if (!this.control.shiftLeft.down) {
+        rotate = this.control.scrollDelta.value * 0.1
+      }
+      if (xr) {
+        const grip = this.beam.kind === 'xrLeft' ? this.control.xrLeftGrip : this.control.xrRightGrip
+        const stick = this.beam.kind === 'xrLeft' ? this.control.xrLeftStick.value : this.control.xrRightStick.value
+        if (!grip.down && Math.abs(stick.x) > 0.4) {
+          rotate = -stick.x * 1.5
+        }
+      }
+      if (rotate) {
+        this.target.rotation.y += rotate * delta
       }
       // apply movement
       app.root.position.copy(this.target.position)
@@ -602,6 +725,157 @@ export class ClientBuilder extends System {
     this.updateActions()
   }
 
+  createXRMenu() {
+    const $root = createNode('group')
+    const $ui = createNode('ui', {
+      width: 200,
+      height: 200,
+      size: 0.001,
+      // backgroundColor: 'white',
+      doubleside: true,
+      rotation: [-90 * DEG2RAD, 0, 0],
+      position: [0, 0.01, 0.02],
+    })
+    $root.add($ui)
+    function createBtn({ label }) {
+      const $btn = createNode('uiview', {
+        backgroundColor: 'black',
+        borderRadius: 10,
+        width: 60,
+        height: 60,
+        absolute: true,
+        alignItems: 'center',
+        justifyContent: 'center',
+      })
+      const $text = createNode('uitext', {
+        value: label,
+        color: 'white',
+        fontSize: 11,
+      })
+      $btn.add($text)
+      return {
+        $btn,
+        set highlight(value) {
+          $btn.backgroundColor = value ? 'white' : 'black'
+          $text.color = value ? 'black' : 'white'
+        },
+      }
+    }
+    const btn1 = createBtn({ label: 'Move' })
+    btn1.$btn.left = 200 - 100 - 60 / 2
+    btn1.$btn.top = 0
+    $ui.add(btn1.$btn)
+    const btn2 = createBtn({ label: 'Copy' })
+    btn2.$btn.right = 0
+    btn2.$btn.top = 200 - 100 - 60 / 2
+    $ui.add(btn2.$btn)
+    const btn3 = createBtn({ label: 'Delete' })
+    btn3.$btn.left = 200 - 100 - 60 / 2
+    btn3.$btn.bottom = 0
+    $ui.add(btn3.$btn)
+    // const btn4 = createBtn({ label: 'Pin' })
+    // btn4.$btn.left = 0
+    // btn4.$btn.top = 200 - 100 - 60 / 2
+    // $ui.add(btn4.$btn)
+    const menu = {
+      state: 'closed',
+      ray: null,
+      stick: null,
+      open: kind => {
+        menu.ray = kind === 'xrLeft' ? this.control.xrLeftRayPose : this.control.xrRightRayPose
+        menu.stick = kind === 'xrLeft' ? this.control.xrLeftStick : this.control.xrRightStick
+        menu.stick.capture = true
+        menu.state = 'open'
+        $root.activate({ world: this.world, entity: null })
+        console.log('OPEN')
+      },
+      hide: () => {
+        menu.state = 'hidden'
+        $root.deactivate()
+        console.log('HIDe')
+      },
+      close: () => {
+        menu.ray = null
+        menu.stick.capture = false
+        menu.stick = null
+        menu.state = 'closed'
+        $root.deactivate()
+        console.log('CLOSE')
+      },
+      update: delta => {
+        if (menu.state !== 'open') return
+        // attach to hand
+        $root.position.copy(menu.ray.position)
+        $root.quaternion.copy(menu.ray.quaternion)
+        // highlight button
+        const stick = menu.stick
+        btn1.highlight = false
+        btn2.highlight = false
+        btn3.highlight = false
+        // btn4.highlight = false
+        const deadzone = 0.3
+        if (Math.abs(stick.value.x) > deadzone || Math.abs(stick.value.z) > deadzone) {
+          const angle = Math.atan2(stick.value.z, stick.value.x)
+          // Convert angle to degrees and normalize to 0-36
+          let degrees = angle * (180 / Math.PI)
+          if (degrees < 0) degrees += 360
+          // Determine which quadrant/button based on angle
+          // Top button: 45° to 135° (centered at 90°)
+          // Right button: 315° to 45° (centered at 0°/360°)
+          // Bottom button: 225° to 315° (centered at 270°)
+          // Left button: 135° to 225° (centered at 180°)
+          if (degrees >= 45 && degrees < 135) {
+            // Down: Delete
+            btn3.highlight = true
+            menu.delete = true
+            menu.hide()
+          } else if (degrees >= 315 || degrees < 45) {
+            // Right: Copy
+            btn2.highlight = true
+            menu.copy = true
+            menu.hide()
+          } else if (degrees >= 225 && degrees < 315) {
+            // Up: Move
+            btn1.highlight = true
+            menu.move = true
+            menu.hide()
+          } else if (degrees >= 135 && degrees < 225) {
+            // Left: Pin/Unpin
+            // btn4.highlight = true
+            // menu.pin = true
+            // menu.hide()
+          }
+        }
+      },
+    }
+    this.xrMenu = menu
+  }
+
+  updateXRLaser(delta) {
+    if (!this.beam.xr) {
+      if (this.xrLaser) this.xrLaser.visible = false
+      return
+    }
+    if (!this.xrLaser) {
+      const geometry = new THREE.BoxGeometry(0.002, 0.002, 1)
+      geometry.translate(0, 0, -0.5)
+      const material = new THREE.MeshStandardMaterial({ color: 'white', opacity: 0.5, transparent: true })
+      this.xrLaser = new THREE.Mesh(geometry, material)
+      this.xrLaser.scale.z = 2
+      this.world.stage.scene.add(this.xrLaser)
+    }
+
+    const color = this.beam.build ? 'red' : 'white'
+    if (this.xrLaser.material.$color !== color) {
+      this.xrLaser.material.color.set(color)
+      this.xrLaser.material.needsUpdate = true
+      this.xrLaser.material.$color = color
+    }
+    this.xrLaser.position.copy(this.beam.kind === 'xrLeft' ? this.control.xrLeftRayPose.position : this.control.xrRightRayPose.position) // prettier-ignore
+    this.xrLaser.quaternion.copy(this.beam.kind === 'xrLeft' ? this.control.xrLeftRayPose.quaternion : this.control.xrRightRayPose.quaternion) // prettier-ignore
+    this.xrLaser.visible = true
+  }
+
   attachGizmo(app, mode) {
     if (this.gizmo) this.detachGizmo()
     // create gizmo
@@ -650,7 +924,19 @@ export class ClientBuilder extends System {
     return entity
   }
 
-  getEntityAtPointer() {
+  getEntityAtBeam() {
+    const origin = this.beam.position
+    const dir = v1.set(0, 0, -1).applyQuaternion(this.beam.quaternion)
+    const hits = this.world.stage.raycast(origin, dir)
+    let entity
+    for (const hit of hits) {
+      entity = hit.getEntity?.()
+      if (entity) break
+    }
+    return entity
+  }
+
+  getEntityAtCursor() {
     const hits = this.world.stage.raycastPointer(this.control.pointer.position)
     let entity
     for (const hit of hits) {
@@ -658,6 +944,20 @@ export class ClientBuilder extends System {
       if (entity) break
     }
     return entity
+  }
+
+  getHitAtBeam(ignoreEntity, ignorePlayers) {
+    const origin = this.beam.position
+    const dir = v1.set(0, 0, -1).applyQuaternion(this.beam.quaternion)
+    const hits = this.world.stage.raycast(origin, dir)
+    let hit
+    for (const _hit of hits) {
+      const entity = _hit.getEntity?.()
+      if (entity === ignoreEntity || (entity?.isPlayer && ignorePlayers)) continue
+      hit = _hit
+      break
+    }
+    return hit
   }
 
   getHitAtReticle(ignoreEntity, ignorePlayers) {

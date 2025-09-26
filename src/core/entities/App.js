@@ -12,13 +12,18 @@ import { Layers } from '../extras/Layers'
 import { createPlayerProxy } from '../extras/createPlayerProxy'
 import { serializeError } from '../extras/serializeError'
 
-const hotEventNames = ['fixedUpdate', 'update', 'lateUpdate']
+const hotEventNames = ['fixedUpdate', 'update', 'animate', 'lateUpdate']
 
 const Modes = {
   ACTIVE: 'active',
   MOVING: 'moving',
   LOADING: 'loading',
   CRASHED: 'crashed',
+}
+
+let safeMode = false
+if (typeof window !== 'undefined') {
+  safeMode = new URLSearchParams(window.location.search).get('safemode')
 }
 
 export class App extends Entity {
@@ -37,6 +42,8 @@ export class App extends Entity {
     this.target = null
     this.projectLimit = Infinity
     this.resetOnMove = false
+    this.animateDelta = 0
+    this.animateRate = 0.001
     this.playerProxies = new Map()
     this.hitResultsPool = []
     this.hitResults = []
@@ -143,13 +150,17 @@ export class App extends Entity {
     // activate
     this.root.activate({ world: this.world, entity: this, moving: !!this.data.mover })
     // execute script
+    this.script = script
+    this.onScript?.(script)
     const runScript =
-      script && !crashed && (this.mode === Modes.ACTIVE || (this.mode === Modes.MOVING && !this.resetOnMove))
+      script &&
+      !crashed &&
+      !safeMode &&
+      (this.mode === Modes.ACTIVE || (this.mode === Modes.MOVING && !this.resetOnMove))
     // (this.mode === Modes.ACTIVE && script && !crashed) ||
     // (this.mode === Modes.MOVING && !this.resetOnMove && !this.scriptError)
     if (runScript) {
       this.abortController = new AbortController()
-      this.script = script
       try {
         this.script.exec(this.getWorldProxy(), this.getAppProxy(), this.fetch, blueprint.props, this.setTimeout)
         this.scriptError = null
@@ -159,8 +170,6 @@ export class App extends Entity {
         console.error(err)
         return this.crash()
       }
-    } else {
-      this.script = null
     }
     // if moving we need updates
     if (this.mode === Modes.MOVING) {
@@ -226,6 +235,7 @@ export class App extends Entity {
       try {
         this.emit('fixedUpdate', delta)
       } catch (err) {
+        this.scriptError = serializeError(err)
         console.error('script fixedUpdate crashed', this)
         console.error(err)
         this.crash()
@@ -241,11 +251,19 @@ export class App extends Entity {
       this.networkQuat.update(delta)
       this.networkSca.update(delta)
     }
-    // script update()
+    // script update/animate
     if (this.script) {
       try {
+        // update
         this.emit('update', delta)
+        // animate
+        this.animateDelta += delta
+        while (this.animateDelta >= this.animateRate) {
+          this.emit('animate', this.animateDelta)
+          this.animateDelta = 0
+        }
       } catch (err) {
+        this.scriptError = serializeError(err)
         console.error('script update() crashed', this)
         console.error(err)
         this.crash()
@@ -259,6 +277,7 @@ export class App extends Entity {
       try {
         this.emit('lateUpdate', delta)
       } catch (err) {
+        this.scriptError = serializeError(err)
         console.error('script lateUpdate() crashed', this)
         console.error(err)
         this.crash()

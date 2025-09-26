@@ -721,7 +721,7 @@ function World({ world, hidden }) {
             world={world}
           />
           <FieldFile
-            label='Avatar'
+            label='Default Avatar'
             hint='Change the default avatar everyone spawns into the world with'
             kind='avatar'
             value={avatar}
@@ -1244,7 +1244,8 @@ function AppTransformFields({ app }) {
     <>
       <FieldVec3
         label='Position'
-        dp={1}
+        dp={2}
+        smallStep={0.01}
         step={0.1}
         bigStep={1}
         value={position}
@@ -1260,7 +1261,8 @@ function AppTransformFields({ app }) {
       />
       <FieldVec3
         label='Rotation'
-        dp={1}
+        dp={2}
+        smallStep={0.1}
         step={1}
         bigStep={5}
         value={rotation}
@@ -1276,7 +1278,8 @@ function AppTransformFields({ app }) {
       />
       <FieldVec3
         label='Scale'
-        dp={1}
+        dp={2}
+        smallStep={0.01}
         step={0.1}
         bigStep={1}
         value={scale}

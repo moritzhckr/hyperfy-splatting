@@ -113,6 +113,14 @@ export function ScriptEditor({ app, onHandle }) {
         run: save,
       })
       setEditor(editor)
+      // watch changes
+      app.onScript = () => {
+        const newCode = app.script?.code || '// ...'
+        if (newCode !== codeRef.current) {
+          editor.setValue(newCode)
+          codeRef.current = newCode
+        }
+      }
     })
     return () => {
       dead = true

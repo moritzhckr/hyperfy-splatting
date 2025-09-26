@@ -3,6 +3,8 @@ import { ControlPriorities } from '../extras/ControlPriorities'
 
 import { System } from './System'
 
+const v1 = new THREE.Vector3()
+
 /**
  *
  * This system handles pointer events.
@@ -28,8 +30,26 @@ export class ClientPointer extends System {
   }
 
   update(delta) {
-    const hit = this.control.pointer.locked ? this.world.stage.raycastReticle()[0] : this.screenHit
-    this.pointerState.update(hit, this.control.mouseLeft.pressed, this.control.mouseLeft.released)
+    let hit
+    let pressed
+    let released
+    if (this.control.xrLeftTrigger.value || this.control.xrRightTrigger.value) {
+      const ray = this.control.xrLeftTrigger.value ? this.control.xrLeftRayPose : this.control.xrRightRayPose
+      const dir = v1.set(0, 0, -1).applyQuaternion(ray.quaternion)
+      hit = this.world.stage.raycast(ray.position, dir)[0]
+      const trigger = this.control.xrLeftTrigger.value ? this.control.xrLeftTrigger : this.control.xrRightTrigger
+      pressed = trigger.pressed
+      released = trigger.released
+    } else if (this.control.pointer.locked) {
+      hit = this.world.stage.raycastReticle()[0]
+      pressed = this.control.mouseLeft.pressed
+      released = this.control.mouseLeft.released
+    } else {
+      hit = this.screenHit
+      pressed = this.control.mouseLeft.pressed
+      released = this.control.mouseLeft.released
+    }
+    this.pointerState.update(hit, pressed, released)
   }
 
   setScreenHit(screenHit) {

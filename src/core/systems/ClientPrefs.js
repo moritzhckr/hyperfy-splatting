@@ -48,6 +48,12 @@ export class ClientPrefs extends System {
     this.changes = null
   }
 
+  init() {
+    this.world.chat.bindCommand('stats', () => {
+      this.setStats(!this.stats)
+    })
+  }
+
   preFixedUpdate() {
     if (!this.changes) return
     this.emit('change', this.changes)

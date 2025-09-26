@@ -3,7 +3,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronUpIcon, LoaderIcon, MessageSquareTextIcon, RefreshCwIcon, SendHorizonalIcon } from 'lucide-react'
 import moment from 'moment'
 
-// import { CodeEditor } from './CodeEditor'
 import { AvatarPane } from './AvatarPane'
 import { useElemSize } from './useElemSize'
 import { MouseLeftIcon } from './MouseLeftIcon'
@@ -99,9 +98,6 @@ export function CoreUI({ world }) {
       {ready && <Sidebar world={world} ui={ui} />}
       {ready && <Chat world={world} />}
       {/* {ready && <Side world={world} player={player} menu={menu} />} */}
-      {/* {ready && menu?.type === 'app' && code && (
-        <CodeEditor key={`code-${menu.app.data.id}`} world={world} app={menu.app} blur={menu.blur} />
-      )} */}
       {avatar && <AvatarPane key={avatar.hash} world={world} info={avatar} />}
       {/* {apps && <AppsPane world={world} close={() => world.ui.toggleApps()} />} */}
       {!ready && <LoadingOverlay world={world} />}
