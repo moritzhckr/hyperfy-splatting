@@ -95,13 +95,12 @@ fastify.register(cors)
 fastify.register(compress, {
   // Don't compress files that are already compressed or binary
   customTypes: /text\/|application\/json|application\/javascript|text\/css/,
-  // Exclude SPZ and other splat files from compression
   encodings: ['gzip', 'deflate'],
   brotli: {
     quality: 4,
     lgwin: 22
   },
-  inflateIfDeflated: true
+  inflateIfDeflated: false  // Don't auto-decompress files like SPZ
 })
 fastify.get('/', async (req, reply) => {
   const title = world.settings.title || 'World'

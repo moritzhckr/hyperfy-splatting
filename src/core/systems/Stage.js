@@ -269,6 +269,8 @@ export class Stage extends System {
         const ext = srcUrl.split('.').pop()?.toLowerCase()
         if (ext === 'ksplat' || ext === 'splat') {
           fileType = ext
+        } else if (ext === 'spz') {
+          fileType = null  // SPZ format is auto-detected by Spark.js
         } else if (ext === 'sogs') {
           fileType = 'pcsogs'
         } else if (ext === 'zip' && srcUrl.toLowerCase().includes('sogs')) {
@@ -278,10 +280,23 @@ export class Stage extends System {
         }
       }
       
-      // For KSPLAT/SPLAT/SOGS: Use asset URL directly (not blob URL)
-      // because Spark.js needs the file extension to detect format
+      // Determine the URL to use for loading
       let actualUrl = url
-      if (fileType === 'ksplat' || fileType === 'splat' || fileType === 'pcsogs' || fileType === 'pcsogszip') {
+      const isSPZ = srcUrl && srcUrl.split('.').pop()?.toLowerCase() === 'spz'
+      const isSOGS = fileType === 'pcsogs' || fileType === 'pcsogszip'
+
+      if (isSPZ) {
+        // SPZ files MUST use the resolved server URL, never blob URLs
+        // because SPZ files are already compressed and need direct access
+        actualUrl = this.world.resolveURL(srcUrl)
+        console.log('🎯 SPZ detected - using server URL:', actualUrl)
+      } else if (isSOGS) {
+        // SOGS files MUST also use the resolved server URL, never blob URLs
+        // because SOGS files need direct access for proper loading
+        actualUrl = this.world.resolveURL(srcUrl)
+        console.log('🎯 SOGS detected - using server URL:', actualUrl)
+      } else if (fileType === 'ksplat' || fileType === 'splat') {
+        // Other special formats also use server URLs for file extension detection
         actualUrl = this.world.resolveURL(srcUrl)
       } else {
         // For other formats: Use cached file if available
@@ -357,6 +372,7 @@ export class Stage extends System {
         })
         
         // For KSPLAT/SPLAT/SOGS files: Try manual asyncInitialize() with correct parameters
+        // SPZ files are auto-detected and don't need manual initialization
         if (fileType === 'ksplat' || fileType === 'splat' || fileType === 'pcsogs' || fileType === 'pcsogszip') {
           if (typeof splatMesh.asyncInitialize === 'function') {
             const initOptions = { url: actualUrl, fileType: fileType }
@@ -395,8 +411,8 @@ export class Stage extends System {
             clearInterval(pollInterval)
           }
           
-          // Stop polling after 30 checks (60 seconds) for KSPLAT/SOGS
-          const maxPolls = (fileType === 'ksplat' || fileType === 'splat' || fileType === 'pcsogs' || fileType === 'pcsogszip') ? 30 : 15
+          // Stop polling after 30 checks (60 seconds) for KSPLAT/SOGS, SPZ is auto-detected
+          const maxPolls = (fileType === 'ksplat' || fileType === 'splat' || fileType === 'pcsogs' || fileType === 'pcsogszip' || isSPZ) ? 30 : 15
           if (pollCount >= maxPolls) {
             clearInterval(pollInterval)
           }
