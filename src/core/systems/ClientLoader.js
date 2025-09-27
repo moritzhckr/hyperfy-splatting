@@ -98,16 +98,116 @@ export class ClientLoader extends System {
     return file
   }
 
-  loadFile = async url => {
-    url = this.world.resolveURL(url)
-    if (this.files.has(url)) {
-      return this.files.get(url)
+  remove(type, url) {
+    const key = `${type}/${url}`
+    console.log('🗑️ Removing from loader cache:', key)
+
+    // For splats: Clean up memory-intensive fileBytes
+    const result = this.results.get(key)
+    if (result && result.fileBytes) {
+      console.log('🧹 Cleaning up fileBytes memory:', (result.fileBytes.byteLength / 1024 / 1024).toFixed(2), 'MB')
+      // Clear the ArrayBuffer reference to help GC
+      result.fileBytes = null
     }
-    const resp = await fetch(url)
-    const blob = await resp.blob()
-    const file = new File([blob], url.split('/').pop(), { type: blob.type })
-    this.files.set(url, file)
-    return file
+
+    // Remove from results cache
+    this.results.delete(key)
+
+    // Remove from files cache
+    url = this.world.resolveURL(url)
+    this.files.delete(url)
+
+    // Remove from promises cache if it exists
+    this.promises.delete(key)
+
+    // Force garbage collection hint (not guaranteed but helps)
+    if (globalThis.gc) {
+      globalThis.gc()
+    }
+
+    console.log('✅ Removed from loader cache:', key)
+  }
+
+  loadFile = async (url, options = {}) => {
+    const { preserveCompression = false } = options
+
+    url = this.world.resolveURL(url)
+    const cacheKey = preserveCompression ? `${url}:raw` : url
+
+    if (this.files.has(cacheKey)) {
+      return this.files.get(cacheKey)
+    }
+
+    const fileName = url.split('/').pop()
+
+    if (preserveCompression) {
+      // Try different approaches to prevent auto-decompression
+      console.log('🔄 Attempting to fetch SPZ with compression preserved...')
+
+      // Approach 1: Try with compress: false and special headers
+      try {
+        const resp = await fetch(url, {
+          compress: false,
+          headers: {
+            'Cache-Control': 'no-transform'
+          }
+        })
+
+        console.log('🔍 Response headers:', Object.fromEntries(resp.headers.entries()))
+
+        const arrayBuffer = await resp.arrayBuffer()
+        const firstBytes = new Uint8Array(arrayBuffer.slice(0, 4))
+        const isGzipped = firstBytes[0] === 0x1f && firstBytes[1] === 0x8b
+
+        console.log('🔍 First 4 bytes after fetch:', Array.from(firstBytes))
+        console.log('🔍 Is gzipped:', isGzipped)
+
+        if (isGzipped) {
+          console.log('✅ Successfully preserved gzip compression!')
+          const blob = new Blob([arrayBuffer], { type: 'application/octet-stream' })
+          const file = new File([blob], fileName, { type: 'application/octet-stream' })
+          this.files.set(cacheKey, file)
+          return file
+        }
+      } catch (error) {
+        console.warn('⚠️ compress: false approach failed:', error.message)
+      }
+
+      // Approach 2: Check for base64 encoding from server
+      const resp = await fetch(url)
+      const spzFormat = resp.headers.get('X-SPZ-Format')
+
+      if (spzFormat === 'base64-gzip') {
+        // Decode base64 to get original gzipped SPZ data
+        const base64Data = await resp.text()
+        console.log('🔄 Decoding base64 SPZ data, length:', base64Data.length)
+
+        // Convert base64 to binary data
+        const binaryString = atob(base64Data)
+        const bytes = new Uint8Array(binaryString.length)
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i)
+        }
+
+        const blob = new Blob([bytes], { type: 'application/octet-stream' })
+        const file = new File([blob], fileName, { type: 'application/octet-stream' })
+        this.files.set(cacheKey, file)
+        return file
+      } else {
+        // Fallback to normal handling
+        const blob = await resp.blob()
+        const file = new File([blob], fileName, { type: blob.type })
+        this.files.set(cacheKey, file)
+        return file
+      }
+    } else {
+      // Normal fetch for other files
+      const resp = await fetch(url)
+      const blob = await resp.blob()
+      const file = new File([blob], fileName, { type: blob.type })
+      this.files.set(cacheKey, file)
+      return file
+    }
   }
 
   async load(type, url) {
@@ -127,7 +227,11 @@ export class ClientLoader extends System {
       this.promises.set(key, promise)
       return promise
     }
-    const promise = this.loadFile(url).then(async file => {
+    // For SPZ files, use preserveCompression flag to maintain gzip format
+    const loadFileOptions = (type === 'splat' && url.toLowerCase().endsWith('.spz')) ?
+      { preserveCompression: true } : {}
+
+    const promise = this.loadFile(url, loadFileOptions).then(async file => {
       if (type === 'hdr') {
         const buffer = await file.arrayBuffer()
         const result = this.rgbeLoader.parse(buffer)
@@ -238,21 +342,72 @@ export class ClientLoader extends System {
         return audioBuffer
       }
       if (type === 'splat') {
-        // For splat files, Spark.js handles loading directly from URL
-        // We just store the file reference for the URL resolver
+        const format = file.name.split('.').pop().toLowerCase()
+
+        // For SPZ: Use fileBytes approach to avoid gzip conflicts
+        if (format === 'spz') {
+          const fileBytes = await file.arrayBuffer()
+
+          // Debug: Check the actual file data
+          const firstBytes = new Uint8Array(fileBytes.slice(0, 10))
+          const isGzipped = firstBytes[0] === 0x1f && firstBytes[1] === 0x8b
+          console.log('🔍 SPZ file data analysis:')
+          console.log('  First 10 bytes:', Array.from(firstBytes))
+          console.log('  Is gzipped:', isGzipped)
+          console.log('  File size:', fileBytes.byteLength)
+
+          // TODO: Fix SPZ decompression issue - data should be gzipped but isn't
+
+          const createSplatMesh = async (options = {}) => {
+            const { SplatMesh } = await import('@sparkjsdev/spark')
+
+            const splatMeshOptions = {
+              fileBytes: fileBytes,
+              fileType: format,
+              fileName: file.name,
+              ...options
+            }
+
+            console.log('🎯 Creating SPZ SplatMesh with fileBytes:', {
+              fileType: format,
+              fileName: file.name,
+              size: fileBytes.byteLength
+            })
+
+            const splatMesh = new SplatMesh(splatMeshOptions)
+            console.log('✅ SPZ SplatMesh created with fileBytes approach')
+
+            return splatMesh
+          }
+
+          const splatData = {
+            file,
+            url,
+            fileBytes,
+            size: file.size,
+            format,
+            createSplatMesh,
+            getStats() {
+              return {
+                fileBytes: file.size,
+                format
+              }
+            }
+          }
+          this.results.set(key, splatData)
+          return splatData
+        }
+
+        // For other formats: Use memory-efficient URL approach
         const splatData = {
           file,
           url,
           size: file.size,
-          format: file.name.split('.').pop().toLowerCase(),
-          toSplatData() {
-            // This will be handled by Spark.js directly
-            return { file, url }
-          },
+          format,
           getStats() {
             return {
               fileBytes: file.size,
-              format: file.name.split('.').pop().toLowerCase()
+              format
             }
           }
         }
@@ -382,22 +537,66 @@ export class ClientLoader extends System {
       // Store the file directly for hasFile/getFile to work
       this.files.set(url, file)
       
-      // For splat files, create a simple promise that resolves to file info
-      promise = Promise.resolve().then(() => {
+      // For splat files, create the same structure as load() method
+      promise = Promise.resolve().then(async () => {
+        const format = file.name.split('.').pop().toLowerCase()
+
+        // For SPZ: Use fileBytes approach to avoid gzip conflicts
+        if (format === 'spz') {
+          const fileBytes = await file.arrayBuffer()
+
+          const createSplatMesh = async (options = {}) => {
+            const { SplatMesh } = await import('@sparkjsdev/spark')
+
+            const splatMeshOptions = {
+              fileBytes: fileBytes,
+              fileType: format,
+              fileName: file.name,
+              ...options
+            }
+
+            console.log('🎯 [INSERT] Creating SPZ SplatMesh with fileBytes:', {
+              fileType: format,
+              fileName: file.name,
+              size: fileBytes.byteLength
+            })
+
+            const splatMesh = new SplatMesh(splatMeshOptions)
+            console.log('✅ [INSERT] SPZ SplatMesh created with fileBytes approach')
+
+            return splatMesh
+          }
+
+          const splatData = {
+            file,
+            url,
+            fileBytes,
+            size: file.size,
+            format,
+            createSplatMesh,
+            getStats() {
+              return {
+                fileBytes: file.size,
+                format
+              }
+            }
+          }
+          this.results.set(key, splatData)
+          return splatData
+        }
+
+        // For other formats: Use memory-efficient URL approach
+        const localUrl = URL.createObjectURL(file)
         const splatData = {
           file,
           url,
           localUrl,
           size: file.size,
-          format: file.name.split('.').pop().toLowerCase(),
-          toSplatData() {
-            // This will be handled by Spark.js directly
-            return { file, url, localUrl }
-          },
+          format,
           getStats() {
             return {
               fileBytes: file.size,
-              format: file.name.split('.').pop().toLowerCase()
+              format
             }
           }
         }

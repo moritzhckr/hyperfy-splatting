@@ -93,14 +93,23 @@ await world.init({
 
 fastify.register(cors)
 fastify.register(compress, {
-  // Don't compress files that are already compressed or binary
+  // Only compress text-based files, exclude binary and already compressed formats
   customTypes: /text\/|application\/json|application\/javascript|text\/css/,
   encodings: ['gzip', 'deflate'],
   brotli: {
     quality: 4,
     lgwin: 22
   },
-  inflateIfDeflated: false  // Don't auto-decompress files like SPZ
+  inflateIfDeflated: false,
+  // Skip compression based on file extension or request path
+  skipOnPath(req) {
+    const path = req.url || req.raw.url || ''
+    // Skip compression for splat files that are already compressed
+    return path.endsWith('.spz') ||
+           path.endsWith('.sogs') ||
+           path.endsWith('.ksplat') ||
+           path.endsWith('.zip')
+  }
 })
 fastify.get('/', async (req, reply) => {
   const title = world.settings.title || 'World'
@@ -126,6 +135,22 @@ fastify.register(statics, {
   },
 })
 if (world.assetsDir) {
+  // Add a hook to transform SPZ files to base64 before serving
+  fastify.addHook('onSend', async (request, reply, payload) => {
+    if (request.url.startsWith('/assets/') && request.url.endsWith('.spz') && request.method === 'GET') {
+      // Only transform if this is actually binary SPZ file content (not JSON responses)
+      if (Buffer.isBuffer(payload) && payload.length > 100) { // SPZ files should be reasonably sized
+        const base64Data = payload.toString('base64')
+
+        reply.header('Content-Type', 'text/plain')
+        reply.header('X-SPZ-Format', 'base64-gzip')
+
+        return base64Data
+      }
+    }
+    return payload
+  })
+
   fastify.register(statics, {
     root: world.assetsDir,
     prefix: '/assets/',
@@ -154,17 +179,15 @@ if (world.assetsDir) {
         res.setHeader('Accept-Ranges', 'bytes')
       } else if (ext === 'spz') {
         // SPZ files are pre-compressed and need special handling
-        res.setHeader('Content-Type', 'application/octet-stream')
+        // Serve as base64 to prevent browser auto-decompression
+        res.setHeader('Content-Type', 'text/plain')
         res.setHeader('Accept-Ranges', 'bytes')
-        // Ensure no compression headers are added
-        res.removeHeader('Content-Encoding')
-        res.removeHeader('Transfer-Encoding')
+        // Add custom header to indicate this is base64-encoded SPZ data
+        res.setHeader('X-SPZ-Format', 'base64-gzip')
         // Add CORS headers for cross-origin requests
         res.setHeader('Access-Control-Allow-Origin', '*')
         res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS')
         res.setHeader('Access-Control-Allow-Headers', 'Range')
-        // Prevent any middleware from trying to compress this
-        res.setHeader('X-No-Compression', '1')
       }
     },
   })

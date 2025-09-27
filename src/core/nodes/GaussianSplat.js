@@ -67,13 +67,25 @@ export class GaussianSplat extends Node {
     }
 
     this.loadingState = 'loading'
-    
-    try {      
-      // Resolve URL through Hyperfy's asset system
-      const resolvedURL = this.ctx.world.resolveURL(this._src)
-      
+
+    try {
+      // Use Hyperfy's standard loader system
+      const format = this._src.split('.').pop()?.toLowerCase()
+
+      // For PLY/KSPLAT/SPLAT: Use standard loader
+      if (format === 'ply' || format === 'ksplat' || format === 'splat') {
+        // Load through Hyperfy's asset system
+        let splatData = this.ctx.world.loader.get('splat', this._src)
+        if (!splatData) {
+          splatData = await this.ctx.world.loader.load('splat', this._src)
+        }
+
+        // Store the loaded data for createSplatHandle
+        this.splatData = splatData
+      }
+
       this.loadingState = 'loaded'
-      
+
       // Only create handle on client after loading is marked complete
       if (this.mounted && !this.ctx.world.network.isServer) {
         await this.createSplatHandle()
@@ -88,52 +100,28 @@ export class GaussianSplat extends Node {
     if (!this._src || !this.ctx?.world?.stage) {
       return
     }
-    
+
     // Only create SplatMesh on client
     if (this.ctx.world.network.isServer) {
       return
     }
 
-    // Try to use cached file first, fallback to resolved URL
+    // Determine URL to use based on loaded data or fallback
     let actualURL = this.ctx.world.resolveURL(this._src)
-    
-    if (this.ctx.world.loader.hasFile(this._src)) {
+
+    // For formats handled by standard loader, use the loaded data if available
+    const format = this._src.split('.').pop()?.toLowerCase()
+    if ((format === 'ply' || format === 'ksplat' || format === 'splat') && this.splatData) {
+      // Use blob URL from standard loader
+      actualURL = this.splatData.localUrl || actualURL
+    } else if (this.ctx.world.loader.hasFile(this._src)) {
+      // Fallback to cached file
       const cachedFile = this.ctx.world.loader.getFile(this._src)
       if (cachedFile) {
         actualURL = URL.createObjectURL(cachedFile)
       }
-    } else {
-      // For HTTP URLs, verify the asset exists before trying to load
-      if (actualURL.includes('/assets/')) {
-        try {
-          const response = await fetch(actualURL, { method: 'HEAD' })
-          if (!response.ok) {
-            console.warn('⚠️ Splat asset not found on server:', actualURL)
-            
-            // Fallback: Try to use cached file
-            const originalSrc = this.data?.src || this.data?.url || this._src
-            if (originalSrc && this.ctx.world.loader.hasFile(originalSrc)) {
-              const cachedFile = this.ctx.world.loader.getFile(originalSrc)
-              if (cachedFile) {
-                actualURL = URL.createObjectURL(cachedFile)
-              } else {
-                console.error('❌ No cached file available')
-                this.loadingState = 'error'
-                return
-              }
-            } else {
-              console.error('❌ No fallback available')
-              this.loadingState = 'error'
-              return
-            }
-          }
-        } catch (error) {
-          console.error('❌ Failed to check splat asset availability:', error)
-          // Continue with the URL anyway - might work
-        }
-      }
     }
-    
+
     this.handle = await this.ctx.world.stage.insertGaussianSplat({
       url: actualURL,
       node: this,
