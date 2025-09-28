@@ -1067,21 +1067,18 @@ export class ClientBuilder extends System {
         console.warn('⚠️ SPZ files have limited support. PLY and KSPLAT formats work best.')
       }
       if (ext === 'zip') {
-        console.log('🎯 ZIP file detected - checking for SOGS format...')
       }
       this.addSplat(file, transform)
     }
   }
 
   async addSplat(file, transform) {
-    console.log('🎯 addSplat called with file:', file.name, 'size:', file.size)
     const hash = await hashFile(file)
     const ext = file.name.split('.').pop().toLowerCase()
     const filename = `${hash}.${ext}`
     const url = `asset://${filename}`
     const sizeMB = file.size / (1024 * 1024)
     
-    console.log(`📄 Processing ${ext.toUpperCase()} splat file: ${sizeMB.toFixed(1)}MB`)
     
     // Check file size and warn if necessary
     this.validateSplatFileSize(sizeMB)
@@ -1315,8 +1312,6 @@ app.on('update', () => {
       state: {},
     }
     
-    console.log('📤 Uploading splat file and app script...')
-    console.log('  Splat file:', filename, 'size:', file.size)
     console.log('  Script file:', scriptFilename)
     
     try {
@@ -1617,7 +1612,6 @@ app.on('update', () => {
     this.world.loader.setFile(url, file)
     this.world.loader.setFile(resolvedUrl, file)
     
-    console.log('💾 Splat file cached successfully')
   }
 
   destroy() {

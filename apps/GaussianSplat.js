@@ -101,7 +101,6 @@ function updateCubeVisibility() {
       }
     }
     state.lastShowCube = props.showCube
-    console.log('🎲 Cube visibility updated to:', props.showCube)
   }
 }
 
@@ -187,11 +186,9 @@ function updateAutoRotate() {
       if (props.autoRotate) {
         // Enable auto-rotate: rotate app 180° on X-axis
         app.rotation.x = Math.PI
-        console.log('🔄 Auto-rotate enabled: app rotated 180°')
       } else {
         // Disable auto-rotate: reset app rotation
         app.rotation.x = 0
-        console.log('🔄 Auto-rotate disabled: app rotation reset')
       }
       state.lastAutoRotate = props.autoRotate
     } catch (error) {
@@ -211,7 +208,7 @@ app.on('update', () => {
   updateAutoRotate()
 })
 
-console.log('🌟 Gaussian Splat app ready with properties:', {
+// Gaussian Splat app initialized with properties: {
   splatFile: 'file',
   sortMode: 'select',
   showCube: 'toggle', 

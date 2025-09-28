@@ -247,7 +247,7 @@ fastify.post('/api/upload', async (req, reply) => {
     mimeType = 'application/octet-stream'
   }
   
-  console.log(`📤 Uploading ${ext?.toUpperCase()} file: ${mp.filename} (${buffer.length} bytes, ${mimeType})`)
+  // Upload: ${mp.filename} (${(buffer.length / 1024 / 1024).toFixed(1)}MB)
   
   // Basic validation for SPZ files
   if (ext === 'spz') {
@@ -259,7 +259,6 @@ fastify.post('/api/upload', async (req, reply) => {
       console.warn(`⚠️ SPZ file ${mp.filename} doesn't appear to be valid gzip format`)
       // Continue anyway, maybe it's a different SPZ variant
     } else {
-      console.log(`✓ SPZ file ${mp.filename} has valid gzip header`)
     }
   }
   

@@ -125,7 +125,6 @@ export class ClientLoader extends System {
       globalThis.gc()
     }
 
-    console.log('✅ Removed from loader cache:', key)
   }
 
   loadFile = async (url, options = {}) => {
@@ -142,7 +141,6 @@ export class ClientLoader extends System {
 
     if (preserveCompression) {
       // Try different approaches to prevent auto-decompression
-      console.log('🔄 Attempting to fetch SPZ with compression preserved...')
 
       // Approach 1: Try with compress: false and special headers
       try {
@@ -153,17 +151,13 @@ export class ClientLoader extends System {
           }
         })
 
-        console.log('🔍 Response headers:', Object.fromEntries(resp.headers.entries()))
 
         const arrayBuffer = await resp.arrayBuffer()
         const firstBytes = new Uint8Array(arrayBuffer.slice(0, 4))
         const isGzipped = firstBytes[0] === 0x1f && firstBytes[1] === 0x8b
 
-        console.log('🔍 First 4 bytes after fetch:', Array.from(firstBytes))
-        console.log('🔍 Is gzipped:', isGzipped)
 
         if (isGzipped) {
-          console.log('✅ Successfully preserved gzip compression!')
           const blob = new Blob([arrayBuffer], { type: 'application/octet-stream' })
           const file = new File([blob], fileName, { type: 'application/octet-stream' })
           this.files.set(cacheKey, file)
@@ -180,7 +174,6 @@ export class ClientLoader extends System {
       if (spzFormat === 'base64-gzip') {
         // Decode base64 to get original gzipped SPZ data
         const base64Data = await resp.text()
-        console.log('🔄 Decoding base64 SPZ data, length:', base64Data.length)
 
         // Convert base64 to binary data
         const binaryString = atob(base64Data)
@@ -351,12 +344,8 @@ export class ClientLoader extends System {
           // Debug: Check the actual file data
           const firstBytes = new Uint8Array(fileBytes.slice(0, 10))
           const isGzipped = firstBytes[0] === 0x1f && firstBytes[1] === 0x8b
-          console.log('🔍 SPZ file data analysis:')
-          console.log('  First 10 bytes:', Array.from(firstBytes))
-          console.log('  Is gzipped:', isGzipped)
-          console.log('  File size:', fileBytes.byteLength)
 
-          // TODO: Fix SPZ decompression issue - data should be gzipped but isn't
+          // SPZ files are handled with fileBytes approach
 
           const createSplatMesh = async (options = {}) => {
             const { SplatMesh } = await import('@sparkjsdev/spark')
@@ -368,14 +357,7 @@ export class ClientLoader extends System {
               ...options
             }
 
-            console.log('🎯 Creating SPZ SplatMesh with fileBytes:', {
-              fileType: format,
-              fileName: file.name,
-              size: fileBytes.byteLength
-            })
-
             const splatMesh = new SplatMesh(splatMeshOptions)
-            console.log('✅ SPZ SplatMesh created with fileBytes approach')
 
             return splatMesh
           }
@@ -398,12 +380,31 @@ export class ClientLoader extends System {
           return splatData
         }
 
-        // For other formats: Use memory-efficient URL approach
+        // For other formats: Use fileBytes approach (same as SPZ but without compression handling)
+        const fileBytes = await file.arrayBuffer()
+
+        const createSplatMesh = async (options = {}) => {
+          const { SplatMesh } = await import('@sparkjsdev/spark')
+
+          const splatMeshOptions = {
+            fileBytes: fileBytes,
+            fileType: format,
+            fileName: file.name,
+            ...options
+          }
+
+          const splatMesh = new SplatMesh(splatMeshOptions)
+
+          return splatMesh
+        }
+
         const splatData = {
           file,
           url,
+          fileBytes,
           size: file.size,
           format,
+          createSplatMesh,
           getStats() {
             return {
               fileBytes: file.size,
@@ -555,14 +556,8 @@ export class ClientLoader extends System {
               ...options
             }
 
-            console.log('🎯 [INSERT] Creating SPZ SplatMesh with fileBytes:', {
-              fileType: format,
-              fileName: file.name,
-              size: fileBytes.byteLength
-            })
 
             const splatMesh = new SplatMesh(splatMeshOptions)
-            console.log('✅ [INSERT] SPZ SplatMesh created with fileBytes approach')
 
             return splatMesh
           }
@@ -585,14 +580,32 @@ export class ClientLoader extends System {
           return splatData
         }
 
-        // For other formats: Use memory-efficient URL approach
-        const localUrl = URL.createObjectURL(file)
+        // For other formats: Use fileBytes approach (same as SPZ but without compression handling)
+        const fileBytes = await file.arrayBuffer()
+
+        const createSplatMesh = async (options = {}) => {
+          const { SplatMesh } = await import('@sparkjsdev/spark')
+
+          const splatMeshOptions = {
+            fileBytes: fileBytes,
+            fileType: format,
+            fileName: file.name,
+            ...options
+          }
+
+
+          const splatMesh = new SplatMesh(splatMeshOptions)
+
+          return splatMesh
+        }
+
         const splatData = {
           file,
           url,
-          localUrl,
+          fileBytes,
           size: file.size,
           format,
+          createSplatMesh,
           getStats() {
             return {
               fileBytes: file.size,
@@ -674,7 +687,6 @@ function createVideoFactory(world, url) {
             'loadeddata',
             async () => {
               // if we needed to hit play to fetch data then revert back to paused
-              // console.log('[video] loadeddata', { playing })
               if (playing) elem.pause()
               data = true
               // await new Promise(resolve => setTimeout(resolve, 2000))
@@ -690,10 +702,8 @@ function createVideoFactory(world, url) {
             'loadedmetadata',
             async () => {
               // we need a gesture before we can potentially hit play
-              // console.log('[video] ready')
               // await this.engine.driver.gesture
               // if we already have data do nothing, we're done!
-              // console.log('[video] gesture', { data })
               if (data) return
               // otherwise hit play to force data loading for streams
               elem.play()

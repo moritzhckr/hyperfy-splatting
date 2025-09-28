@@ -208,10 +208,6 @@ export class Stage extends System {
         raw.fog = value
         raw.needsUpdate = true
       },
-      // TODO: not yet
-      // clone() {
-      //   return self.createMaterial(options).proxy
-      // },
       get _ref() {
         if (typeof globalThis.world !== 'undefined' && globalThis.world._allowMaterial) return material
         return undefined
@@ -249,6 +245,75 @@ export class Stage extends System {
     return this.raycastHits
   }
 
+  // Helper function to apply color/opacity to splat meshes and create common handlers
+  async createSplatMeshHandlers(splatMesh, matrix, color, opacity, node, srcUrl) {
+    const id = node.id || `splat_${Date.now()}`
+
+    // Apply transform
+    splatMesh.matrix.copy(matrix)
+    splatMesh.matrixAutoUpdate = false
+    splatMesh.updateMatrixWorld(true)
+
+    // Add to scene
+    this.scene.add(splatMesh)
+
+    // Store reference
+    this.splatMeshes.set(id, splatMesh)
+
+    // Apply color/opacity modifications using direct SplatMesh properties
+    try {
+      const THREE = await import('three')
+
+      // Apply initial color using SplatMesh.recolor property
+      if (color && color !== '#ffffff') {
+        const colorObj = new THREE.Color(color)
+        splatMesh.recolor.set(colorObj.r, colorObj.g, colorObj.b)
+      }
+
+      // Apply initial opacity using SplatMesh.opacity property
+      if (opacity !== undefined && opacity !== 1.0) {
+        splatMesh.opacity = opacity
+      }
+
+    } catch (error) {
+      console.warn('⚠️ Failed to apply initial splat properties:', error.message)
+    }
+
+    // Return handle with update methods
+    return {
+      splatMesh,
+      move: (newMatrix) => {
+        splatMesh.matrix.copy(newMatrix)
+        splatMesh.updateMatrixWorld(true)
+      },
+      updateColor: async (newColor) => {
+        try {
+          const THREE = await import('three')
+          const colorObj = new THREE.Color(newColor)
+          splatMesh.recolor.set(colorObj.r, colorObj.g, colorObj.b)
+        } catch (error) {
+          console.warn('⚠️ Failed to update color:', error)
+        }
+      },
+      updateOpacity: async (newOpacity) => {
+        try {
+          splatMesh.opacity = newOpacity
+        } catch (error) {
+          console.warn('⚠️ Failed to update opacity:', error)
+        }
+      },
+      destroy: () => {
+        this.scene.remove(splatMesh)
+        this.splatMeshes.delete(id)
+        splatMesh.dispose?.()
+        // Remove from loader cache for SPZ files
+        if (srcUrl && srcUrl.split('.').pop()?.toLowerCase() === 'spz') {
+          this.world.loader.remove('splat', srcUrl)
+        }
+      }
+    }
+  }
+
   async insertGaussianSplat({ url, node, matrix, color = '#ffffff', opacity = 1.0 }) {
     // Only create SplatMesh on client
     if (this.world.network.isServer) {
@@ -273,8 +338,8 @@ export class Stage extends System {
           fileType = null  // SPZ format is auto-detected by Spark.js
         } else if (ext === 'sogs') {
           fileType = 'pcsogs'
-        } else if (ext === 'zip' && srcUrl.toLowerCase().includes('sogs')) {
-          fileType = 'pcsogszip'  // SOGS in ZIP format
+        } else if (ext === 'zip') {
+          fileType = 'pcsogs'  // ZIP files with splat data - treat as SOGS
         } else if (ext === 'sogsz' || ext === 'sogszip') {
           fileType = 'pcsogszip'  // Alternative SOGS ZIP extensions
         }
@@ -283,11 +348,10 @@ export class Stage extends System {
       // Determine the URL to use for loading
       let actualUrl = url
       const isSPZ = srcUrl && srcUrl.split('.').pop()?.toLowerCase() === 'spz'
-      const isSOGS = fileType === 'pcsogs' || fileType === 'pcsogszip'
+      const isSOGS = fileType === 'pcsogs' || fileType === 'pcsogszip' || (srcUrl && srcUrl.split('.').pop()?.toLowerCase() === 'zip')
 
       if (isSPZ) {
         // SPZ files: Use fileBytes approach to avoid gzip conflicts
-        console.log('🎯 SPZ detected - using fileBytes approach')
 
         // Load via Hyperfy's standard asset system with fileBytes
         let splatData = this.world.loader.get('splat', srcUrl)
@@ -324,16 +388,13 @@ export class Stage extends System {
           if (color && color !== '#ffffff') {
             const colorObj = new THREE.Color(color)
             spzSplatMesh.recolor.set(colorObj.r, colorObj.g, colorObj.b)
-            console.log('🎨 Applied initial recolor:', colorObj.r, colorObj.g, colorObj.b)
           }
 
           // Apply initial opacity using SplatMesh.opacity property
           if (opacity !== undefined && opacity !== 1.0) {
             spzSplatMesh.opacity = opacity
-            console.log('🔍 Applied initial opacity:', opacity)
           }
 
-          console.log('🎨 Direct SplatMesh properties initialized:', { color, opacity })
 
         } catch (error) {
           console.warn('⚠️ Failed to apply initial splat properties:', error.message)
@@ -347,23 +408,19 @@ export class Stage extends System {
             spzSplatMesh.updateMatrixWorld(true)
           },
           updateColor: async (newColor) => {
-            console.log('🎨 Updating splat color to:', newColor)
             splatProperties.color = newColor
             try {
               const THREE = await import('three')
               const colorObj = new THREE.Color(newColor)
               spzSplatMesh.recolor.set(colorObj.r, colorObj.g, colorObj.b)
-              console.log('🎨 Updated recolor:', colorObj.r, colorObj.g, colorObj.b)
             } catch (error) {
               console.warn('⚠️ Failed to update color:', error)
             }
           },
           updateOpacity: async (newOpacity) => {
-            console.log('🔍 Updating splat opacity to:', newOpacity)
             splatProperties.opacity = newOpacity
             try {
               spzSplatMesh.opacity = newOpacity
-              console.log('🔍 Updated opacity:', newOpacity)
             } catch (error) {
               console.warn('⚠️ Failed to update opacity:', error)
             }
@@ -376,28 +433,109 @@ export class Stage extends System {
             this.world.loader.remove('splat', srcUrl)
           }
         }
-      } else {
-        // All other formats: Use memory-efficient URL approach
-        console.log(`🎯 ${fileType?.toUpperCase() || 'Unknown'} detected - using URL approach`)
+      } else if (isSOGS) {
+        // SOGS/ZIP files: Use URL approach because they need to be unzipped by Spark.js
 
-        // Load via Hyperfy's standard asset system
+        // For SOGS files, we need to use the actual URL so Spark.js can fetch and unzip
+        const sogsSplatMesh = new SplatMesh({
+          url: actualUrl,
+          fileType: fileType
+        })
+
+        // Apply transform
+        sogsSplatMesh.matrix.copy(matrix)
+        sogsSplatMesh.matrixAutoUpdate = false
+        sogsSplatMesh.updateMatrixWorld(true)
+
+        // Add to scene
+        this.scene.add(sogsSplatMesh)
+
+        // Store reference
+        const id = node.id || `splat_${Date.now()}`
+        this.splatMeshes.set(id, sogsSplatMesh)
+
+        // Monitor loading progress for SOGS files
+        let loadCheckCount = 0
+        const checkSOGSLoaded = () => {
+          if (sogsSplatMesh.numSplats > 0 || sogsSplatMesh.isInitialized === true) {
+            return true
+          }
+          return false
+        }
+
+        // Set up periodic check for SOGS loading
+        if (!checkSOGSLoaded()) {
+          const sogsLoadInterval = setInterval(() => {
+            loadCheckCount++
+            if (checkSOGSLoaded() || loadCheckCount >= 30) { // 60 seconds max
+              clearInterval(sogsLoadInterval)
+              if (loadCheckCount >= 30) {
+                console.warn('⚠️ SOGS loading timeout - file may be corrupted or too large')
+              }
+            }
+          }, 2000)
+        }
+
+        // Apply color/opacity modifications using direct SplatMesh properties
+        try {
+          const THREE = await import('three')
+
+          // Apply initial color using SplatMesh.recolor property
+          if (color && color !== '#ffffff') {
+            const colorObj = new THREE.Color(color)
+            sogsSplatMesh.recolor.set(colorObj.r, colorObj.g, colorObj.b)
+          }
+
+          // Apply initial opacity using SplatMesh.opacity property
+          if (opacity !== undefined && opacity !== 1.0) {
+            sogsSplatMesh.opacity = opacity
+          }
+
+
+        } catch (error) {
+          console.warn('⚠️ Failed to apply initial splat properties:', error.message)
+        }
+
+        // Return handle with update methods
+        return {
+          splatMesh: sogsSplatMesh,
+          move: (newMatrix) => {
+            sogsSplatMesh.matrix.copy(newMatrix)
+            sogsSplatMesh.updateMatrixWorld(true)
+          },
+          updateColor: async (newColor) => {
+            try {
+              const THREE = await import('three')
+              const colorObj = new THREE.Color(newColor)
+              sogsSplatMesh.recolor.set(colorObj.r, colorObj.g, colorObj.b)
+            } catch (error) {
+              console.warn('⚠️ Failed to update color:', error)
+            }
+          },
+          updateOpacity: async (newOpacity) => {
+            try {
+              sogsSplatMesh.opacity = newOpacity
+            } catch (error) {
+              console.warn('⚠️ Failed to update opacity:', error)
+            }
+          },
+          destroy: () => {
+            this.scene.remove(sogsSplatMesh)
+            this.splatMeshes.delete(id)
+            sogsSplatMesh.dispose?.()
+          }
+        }
+      } else {
+        // All other formats: Use Hyperfy's standard asset loading system
+
+        // Load via Hyperfy's standard asset system with fileBytes
         let splatData = this.world.loader.get('splat', srcUrl)
         if (!splatData) {
           splatData = await this.world.loader.load('splat', srcUrl)
         }
 
-        // Use URL for memory efficiency
-        const actualUrl = splatData.localUrl || this.world.resolveURL(srcUrl)
-
-        // Create SplatMesh with URL (memory efficient)
-        const { SplatMesh } = await import('@sparkjsdev/spark')
-        const splatMeshOptions = {
-          url: actualUrl,
-          fileType: fileType
-        }
-
-        console.log(`🎯 Creating ${fileType?.toUpperCase()} SplatMesh with URL:`, actualUrl)
-        const otherSplatMesh = new SplatMesh(splatMeshOptions)
+        // Create SplatMesh via fileBytes factory method
+        const otherSplatMesh = await splatData.createSplatMesh()
 
         // Apply transform
         otherSplatMesh.matrix.copy(matrix)
@@ -424,16 +562,13 @@ export class Stage extends System {
           if (color && color !== '#ffffff') {
             const colorObj = new THREE.Color(color)
             otherSplatMesh.recolor.set(colorObj.r, colorObj.g, colorObj.b)
-            console.log('🎨 Applied initial recolor:', colorObj.r, colorObj.g, colorObj.b)
           }
 
           // Apply initial opacity using SplatMesh.opacity property
           if (opacity !== undefined && opacity !== 1.0) {
             otherSplatMesh.opacity = opacity
-            console.log('🔍 Applied initial opacity:', opacity)
           }
 
-          console.log('🎨 Direct SplatMesh properties initialized:', { color, opacity })
 
         } catch (error) {
           console.warn('⚠️ Failed to apply initial splat properties:', error.message)
@@ -447,23 +582,19 @@ export class Stage extends System {
             otherSplatMesh.updateMatrixWorld(true)
           },
           updateColor: async (newColor) => {
-            console.log('🎨 Updating splat color to:', newColor)
             splatProperties.color = newColor
             try {
               const THREE = await import('three')
               const colorObj = new THREE.Color(newColor)
               otherSplatMesh.recolor.set(colorObj.r, colorObj.g, colorObj.b)
-              console.log('🎨 Updated recolor:', colorObj.r, colorObj.g, colorObj.b)
             } catch (error) {
               console.warn('⚠️ Failed to update color:', error)
             }
           },
           updateOpacity: async (newOpacity) => {
-            console.log('🔍 Updating splat opacity to:', newOpacity)
             splatProperties.opacity = newOpacity
             try {
               otherSplatMesh.opacity = newOpacity
-              console.log('🔍 Updated opacity:', newOpacity)
             } catch (error) {
               console.warn('⚠️ Failed to update opacity:', error)
             }
@@ -472,212 +603,14 @@ export class Stage extends System {
             this.scene.remove(otherSplatMesh)
             this.splatMeshes.delete(id)
             otherSplatMesh.dispose?.()
-            // Note: URL-based formats follow Hyperfy standard caching behavior
+            // Remove from loader cache to prevent reappearing after restart
+            this.world.loader.remove('splat', srcUrl)
           }
         }
       }
 
       // All formats now use the unified fileBytes approach above
-      // No need for the old URL-based loading code
-      if (fileType) {
-        splatMeshOptions.fileType = fileType
-        // eslint-disable-next-line no-console
-        console.log('🎯 Loading splat with fileType:', fileType, 'from URL:', actualUrl)
-      }
-      
-      // Add timeout for large files (5 minutes max)
-      const loadTimeout = setTimeout(() => {
-        // eslint-disable-next-line no-console
-        console.warn('⏰ Splat loading timeout after 5 minutes')
-        // eslint-disable-next-line no-console
-        console.warn('   File may be too large or corrupted')
-        // eslint-disable-next-line no-console
-        console.warn('   Consider using a smaller file or different format')
-      }, 5 * 60 * 1000)
-      
-      const splatMesh = new SplatMesh(splatMeshOptions)
-      
-      // Immediately check if already loaded (synchronous case)
-      const checkLoadedState = () => {
-        // Use the correct properties: numSplats, isInitialized, initialized
-        if (splatMesh.numSplats > 0 || splatMesh.isInitialized === true || splatMesh.initialized === true) {
-          clearTimeout(loadTimeout)
-          logSplatInfo(splatMesh)
-          return true
-        }
-        return false
-      }
-      
-      // Helper function to log splat info
-      const logSplatInfo = (_mesh) => {
-        // Memory usage monitoring for development
-        if (performance.memory) {
-          const memory = performance.memory
-          const memoryUsagePercent = (memory.usedJSHeapSize / memory.jsHeapSizeLimit) * 100
-          if (memoryUsagePercent > 90) {
-            // eslint-disable-next-line no-console
-            console.warn('⚠️ High memory usage (' + Math.round(memoryUsagePercent) + '%)! Browser may become unstable.')
-          } else if (memoryUsagePercent > 75) {
-            // eslint-disable-next-line no-console
-            console.info('ℹ️ Memory usage: ' + Math.round(memoryUsagePercent) + '%')
-          }
-        }
-      }
-      
-      // Check if already loaded
-      if (!checkLoadedState()) {
-        // Listen for load events with multiple event names
-        const onLoaded = () => {
-          clearTimeout(loadTimeout)
-          logSplatInfo(splatMesh)
-        }
-        
-        // Try Spark.js specific events and common Three.js events
-        const eventNames = ['initialized', 'ready', 'loaded', 'load', 'complete', 'asyncInitialize']
-        eventNames.forEach(eventName => {
-          if (typeof splatMesh.addEventListener === 'function') {
-            splatMesh.addEventListener(eventName, onLoaded)
-          }
-        })
-        
-        // For KSPLAT/SPLAT/SOGS files: Try manual asyncInitialize() with correct parameters
-        // SPZ files are auto-detected and don't need manual initialization
-        if (fileType === 'ksplat' || fileType === 'splat' || fileType === 'pcsogs' || fileType === 'pcsogszip') {
-          if (typeof splatMesh.asyncInitialize === 'function') {
-            const initOptions = { url: actualUrl, fileType: fileType }
-            splatMesh.asyncInitialize(initOptions).then(() => {
-              logSplatInfo(splatMesh)
-            }).catch(error => {
-              // eslint-disable-next-line no-console
-              console.error('❌ asyncInitialize() failed for format:', fileType, error)
-              
-              // Alternative: Try without options or with different options
-              splatMesh.asyncInitialize().then(() => {
-                logSplatInfo(splatMesh)
-              }).catch(err2 => {
-                // eslint-disable-next-line no-console
-                console.error('❌ Alternative also failed:', err2.message)
-              })
-            })
-          }
-        }
-        
-        // Error handling
-        if (typeof splatMesh.addEventListener === 'function') {
-          splatMesh.addEventListener('error', (error) => {
-            clearTimeout(loadTimeout)
-            // eslint-disable-next-line no-console
-            console.error('❌ Splat loading error:', error)
-          })
-        }
-        
-        // Light polling: Check load state every 2 seconds
-        let pollCount = 0
-        const pollInterval = setInterval(() => {
-          pollCount++
-          
-          if (checkLoadedState()) {
-            clearInterval(pollInterval)
-          }
-          
-          // Stop polling after 30 checks (60 seconds) for KSPLAT/SOGS, SPZ is auto-detected
-          const maxPolls = (fileType === 'ksplat' || fileType === 'splat' || fileType === 'pcsogs' || fileType === 'pcsogszip' || isSPZ) ? 30 : 15
-          if (pollCount >= maxPolls) {
-            clearInterval(pollInterval)
-          }
-        }, 2000)
-      }
-      
-      // Apply transform
-      splatMesh.matrix.copy(matrix)
-      splatMesh.matrixAutoUpdate = false
-      splatMesh.updateMatrixWorld(true)
-      
-      // Add to scene
-      this.scene.add(splatMesh)
-      
-      // Store reference
-      const id = node.id || `splat_${Date.now()}`
-      this.splatMeshes.set(id, splatMesh)
-      
 
-      // Apply color/opacity modifications using direct SplatMesh properties
-      const splatProperties = {
-        color: color,
-        opacity: opacity
-      }
-      
-      try {
-        const THREE = await import('three')
-        
-        // Apply initial color using SplatMesh.recolor property
-        if (color && color !== '#ffffff') {
-          const colorObj = new THREE.Color(color)
-          // SplatMesh.recolor is a Vector3 that multiplies with splat colors
-          splatMesh.recolor.set(colorObj.r, colorObj.g, colorObj.b)
-          // eslint-disable-next-line no-console
-          console.log('🎨 Applied initial recolor:', colorObj.r, colorObj.g, colorObj.b)
-        }
-        
-        // Apply initial opacity using SplatMesh.opacity property
-        if (opacity !== undefined && opacity !== 1.0) {
-          splatMesh.opacity = opacity
-          // eslint-disable-next-line no-console
-          console.log('🔍 Applied initial opacity:', opacity)
-        }
-        
-        // eslint-disable-next-line no-console
-        console.log('🎨 Direct SplatMesh properties initialized:', { color, opacity })
-        
-      } catch (error) {
-        console.warn('⚠️ Failed to apply initial splat properties:', error.message)
-      }
-      
-      // Return handle with update methods
-      return {
-        splatMesh,
-        move: (newMatrix) => {
-          splatMesh.matrix.copy(newMatrix)
-          splatMesh.updateMatrixWorld(true)
-        },
-        updateColor: async (newColor) => {
-          // eslint-disable-next-line no-console
-          console.log('🎨 Updating splat color to:', newColor)
-          splatProperties.color = newColor // Update stored value
-          try {
-            const THREE = await import('three')
-            const colorObj = new THREE.Color(newColor)
-            // Update SplatMesh.recolor property directly
-            splatMesh.recolor.set(colorObj.r, colorObj.g, colorObj.b)
-            // eslint-disable-next-line no-console
-            console.log('🎨 Updated recolor:', colorObj.r, colorObj.g, colorObj.b)
-          } catch (error) {
-            console.warn('⚠️ Failed to update color:', error)
-          }
-        },
-        updateOpacity: async (newOpacity) => {
-          // eslint-disable-next-line no-console
-          console.log('🔍 Updating splat opacity to:', newOpacity)
-          splatProperties.opacity = newOpacity // Update stored value
-          try {
-            // Update SplatMesh.opacity property directly
-            splatMesh.opacity = newOpacity
-            // eslint-disable-next-line no-console
-            console.log('🔍 Updated opacity:', newOpacity)
-          } catch (error) {
-            console.warn('⚠️ Failed to update opacity:', error)
-          }
-        },
-        // Falloff property removed - was causing cross-splat contamination
-        destroy: () => {
-          this.scene.remove(splatMesh)
-          this.splatMeshes.delete(id)
-          splatMesh.dispose?.()
-          // Remove from loader cache to prevent reappearing after restart
-          this.world.loader.remove('splat', srcUrl)
-        }
-      }
-      
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error('❌ SplatMesh creation failed:', error)
@@ -789,9 +722,6 @@ class Model {
           #endif
           `
         )
-        // console.log(this)
-        // console.log(shader.vertexShader)
-        // console.log(shader.fragmentShader)
       }
       this.material.raw.defines.USE_UBER_SHADER = ''
       this.material.raw.needsUpdate = true
@@ -923,7 +853,6 @@ class Model {
   }
 
   getEntity(instanceId) {
-    console.warn('TODO: remove if you dont ever see this')
     return this.items[instanceId]?.node.ctx.entity
   }
 
