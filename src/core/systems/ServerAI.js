@@ -26,9 +26,10 @@ export class ServerAI extends System {
     this.model = process.env.AI_MODEL || null
     this.effort = process.env.AI_EFFORT || 'minimal'
     this.apiKey = process.env.AI_API_KEY || null
+    this.baseURL = process.env.AI_BASE_URL || null
     if (this.provider && this.model && this.apiKey) {
       if (this.provider === 'openai') {
-        this.client = new OpenAIClient(this.apiKey, this.model, this.effort)
+        this.client = new OpenAIClient(this.apiKey, this.model, this.effort, this.baseURL)
       }
       if (this.provider === 'anthropic') {
         this.client = new AnthropicClient(this.apiKey, this.model)
@@ -186,8 +187,10 @@ export class ServerAI extends System {
 }
 
 class OpenAIClient {
-  constructor(apiKey, model, effort) {
-    this.client = new OpenAI({ apiKey })
+  constructor(apiKey, model, effort, baseURL) {
+    const config = { apiKey }
+    if (baseURL) config.baseURL = baseURL
+    this.client = new OpenAI(config)
     this.model = model
     this.effort = effort
   }
