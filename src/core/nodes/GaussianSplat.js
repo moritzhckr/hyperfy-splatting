@@ -9,6 +9,7 @@ const defaults = {
   sortMode: 'auto',
   color: '#ffffff',
   opacity: 1.0,
+  splatScale: 1.0,
 }
 
 const sortModes = ['auto', 'distance', 'none']
@@ -25,6 +26,7 @@ export class GaussianSplat extends Node {
     this._sortMode = sortModes.includes(data.sortMode) ? data.sortMode : defaults.sortMode
     this._color = isString(data.color) ? data.color : defaults.color
     this._opacity = isNumber(data.opacity) ? Math.max(0, Math.min(1, data.opacity)) : defaults.opacity
+    this._splatScale = isNumber(data.splatScale) ? data.splatScale : defaults.splatScale
 
     this.loadingState = 'idle' // 'idle', 'loading', 'loaded', 'error'
     this.needsRebuild = false
@@ -142,6 +144,7 @@ export class GaussianSplat extends Node {
     this._sortMode = source._sortMode
     this._color = source._color
     this._opacity = source._opacity
+    this._splatScale = source._splatScale
     this.loadingState = source.loadingState
     return this
   }
