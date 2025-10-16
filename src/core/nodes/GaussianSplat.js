@@ -128,7 +128,8 @@ export class GaussianSplat extends Node {
       matrix: this.matrixWorld,
       sortMode: this._sortMode,
       color: this._color,
-      opacity: this._opacity
+      opacity: this._opacity,
+      splatScale: this._splatScale
     })
   }
 
@@ -257,6 +258,24 @@ export class GaussianSplat extends Node {
     }
   }
 
+  get splatScale() {
+    return this._splatScale
+  }
+
+  set splatScale(value = defaults.splatScale) {
+    if (!isNumber(value)) {
+      throw new Error('[gaussiansplat] splatScale must be a number')
+    }
+    if (this._splatScale === value) return
+    this._splatScale = value
+    if (this.handle && this.handle.updateSplatScale) {
+      this.handle.updateSplatScale(value)
+    } else if (this.handle) {
+      this.needsRebuild = true
+      this.setDirty()
+    }
+  }
+
 
 
   getProxy() {
@@ -307,6 +326,12 @@ export class GaussianSplat extends Node {
         },
         set opacity(value) {
           self.opacity = value
+        },
+        get splatScale() {
+          return self.splatScale
+        },
+        set splatScale(value) {
+          self.splatScale = value
         },
       }
       proxy = Object.defineProperties(proxy, Object.getOwnPropertyDescriptors(super.getProxy()))

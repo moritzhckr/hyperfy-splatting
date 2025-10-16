@@ -398,46 +398,54 @@ export class Stage extends System {
         // Apply splat renderer scaling to fix float precision issues
         console.log('🔧 Applying SPZ splat renderer scaling to fix float precision:', splatScale)
         
-        // Scale splat data directly to fix float precision issues
+        // Method 1: Scale splat data directly with higher precision
         if (spzSplatMesh.forEachSplat) {
           console.log('🔧 SPZ Method 1 - Scaling splat data to fix float precision')
           spzSplatMesh.forEachSplat((splat, index) => {
             if (splat.position) {
-              // Scale positions to fix float precision issues
-              splat.position[0] *= splatScale
-              splat.position[1] *= splatScale
-              splat.position[2] *= splatScale
+              // Scale positions with higher precision to fix float precision issues
+              splat.position[0] = Math.round(splat.position[0] * splatScale * 1000) / 1000
+              splat.position[1] = Math.round(splat.position[1] * splatScale * 1000) / 1000
+              splat.position[2] = Math.round(splat.position[2] * splatScale * 1000) / 1000
             }
             if (splat.scale) {
-              // Scale individual splat scales
-              splat.scale[0] *= splatScale
-              splat.scale[1] *= splatScale
-              splat.scale[2] *= splatScale
+              // Scale individual splat scales with higher precision
+              splat.scale[0] = Math.round(splat.scale[0] * splatScale * 1000) / 1000
+              splat.scale[1] = Math.round(splat.scale[1] * splatScale * 1000) / 1000
+              splat.scale[2] = Math.round(splat.scale[2] * splatScale * 1000) / 1000
             }
           })
-          console.log('🔧 SPZ Splat data scaled to fix float precision issues')
+          console.log('🔧 SPZ Splat data scaled with higher precision')
         }
         
-        // Alternative: Use generator scaling for float precision fix
+        // Method 2: Use generator scaling with higher precision
         if (spzSplatMesh.generator) {
           console.log('🔧 SPZ Method 2 - Using generator to fix float precision')
           const originalGenerator = spzSplatMesh.generator
           spzSplatMesh.generator = (index) => {
             const result = originalGenerator(index)
             if (result && result.gsplat) {
-              // Scale positions to fix float precision
+              // Scale positions with higher precision
               if (result.gsplat.position) {
-                result.gsplat.position = result.gsplat.position.map(coord => coord * splatScale)
+                result.gsplat.position = result.gsplat.position.map(coord => 
+                  Math.round(coord * splatScale * 1000) / 1000
+                )
               }
-              // Scale individual splat scales
+              // Scale individual splat scales with higher precision
               if (result.gsplat.scale) {
-                result.gsplat.scale = result.gsplat.scale.map(scale => scale * splatScale)
+                result.gsplat.scale = result.gsplat.scale.map(scale => 
+                  Math.round(scale * splatScale * 1000) / 1000
+                )
               }
             }
             return result
           }
-          console.log('🔧 SPZ Generator modified to fix float precision')
+          console.log('🔧 SPZ Generator modified with higher precision')
         }
+        
+        // Method 3: Force higher precision in THREE.js scale
+        spzSplatMesh.scale.setScalar(Math.round(splatScale * 1000) / 1000)
+        console.log('🔧 SPZ THREE.js scale set with higher precision:', spzSplatMesh.scale)
         
         console.log('🔧 SPZ Float precision fix applied:', {
           scale: spzSplatMesh.scale,
@@ -479,38 +487,45 @@ export class Stage extends System {
             try {
               console.log('🔧 Updating SPZ splat scale to fix float precision:', newScale)
               
-              // Scale splat data directly to fix float precision
+              // Scale splat data directly with higher precision
               if (spzSplatMesh.forEachSplat) {
                 spzSplatMesh.forEachSplat((splat, index) => {
                   if (splat.position) {
-                    splat.position[0] *= newScale
-                    splat.position[1] *= newScale
-                    splat.position[2] *= newScale
+                    splat.position[0] = Math.round(splat.position[0] * newScale * 1000) / 1000
+                    splat.position[1] = Math.round(splat.position[1] * newScale * 1000) / 1000
+                    splat.position[2] = Math.round(splat.position[2] * newScale * 1000) / 1000
                   }
                   if (splat.scale) {
-                    splat.scale[0] *= newScale
-                    splat.scale[1] *= newScale
-                    splat.scale[2] *= newScale
+                    splat.scale[0] = Math.round(splat.scale[0] * newScale * 1000) / 1000
+                    splat.scale[1] = Math.round(splat.scale[1] * newScale * 1000) / 1000
+                    splat.scale[2] = Math.round(splat.scale[2] * newScale * 1000) / 1000
                   }
                 })
               }
               
-              // Update generator for float precision fix
+              // Update generator with higher precision
               if (spzSplatMesh.generator) {
                 const originalGenerator = spzSplatMesh.generator
                 spzSplatMesh.generator = (index) => {
                   const result = originalGenerator(index)
                   if (result && result.gsplat) {
                     if (result.gsplat.position) {
-                      result.gsplat.position = result.gsplat.position.map(coord => coord * newScale)
+                      result.gsplat.position = result.gsplat.position.map(coord => 
+                        Math.round(coord * newScale * 1000) / 1000
+                      )
                     }
                     if (result.gsplat.scale) {
-                      result.gsplat.scale = result.gsplat.scale.map(scale => scale * newScale)
+                      result.gsplat.scale = result.gsplat.scale.map(scale => 
+                        Math.round(scale * newScale * 1000) / 1000
+                      )
                     }
                   }
                   return result
                 }
               }
+              
+              // Force higher precision in THREE.js scale
+              spzSplatMesh.scale.setScalar(Math.round(newScale * 1000) / 1000)
               
               console.log('🔧 SPZ Splat scale updated to fix float precision:', newScale)
             } catch (error) {
