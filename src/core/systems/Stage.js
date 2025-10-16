@@ -362,41 +362,14 @@ export class Stage extends System {
         // Create SplatMesh via fileBytes factory method
         const spzSplatMesh = await splatData.createSplatMesh()
 
-        // CRITICAL FIX: Auto-scale small splats to avoid float precision issues
-        // Float precision problems occur when splat positions are too small (< 1.0)
-        // We need to ensure splats are scaled to a minimum size
-        const MIN_SCALE = 2.0 // Minimum scale to avoid float precision artifacts
-        let autoScale = 1.0
+        // CRITICAL FIX: Compensate for the 10x precision scale applied in ClientLoader
+        // The loader applies 10x scale internally to avoid float precision issues
+        // We need to scale down by 0.1 to compensate, then apply user scale
+        const PRECISION_COMPENSATION = 0.1 // Compensate for 10x scale in loader
 
-        // Wait for initialization to get bounding box
-        let waitCount = 0
-        while ((!spzSplatMesh.isInitialized || spzSplatMesh.numSplats === 0) && waitCount < 50) {
-          await new Promise(resolve => setTimeout(resolve, 100))
-          waitCount++
-        }
-
-        if (spzSplatMesh.isInitialized && spzSplatMesh.numSplats > 0) {
-          // Get bounding box to analyze splat size
-          const bbox = spzSplatMesh.getBoundingBox()
-          if (bbox) {
-            const size = new THREE.Vector3()
-            bbox.getSize(size)
-            const maxDimension = Math.max(size.x, size.y, size.z)
-
-            // If splats are too small, auto-scale them up
-            if (maxDimension > 0 && maxDimension < MIN_SCALE) {
-              autoScale = MIN_SCALE / maxDimension
-              console.log(`🔧 Auto-scaling splats by ${autoScale.toFixed(2)}x to fix float precision (original size: ${maxDimension.toFixed(3)})`)
-            }
-          }
-        }
-
-        // Apply combined scale (user scale * auto-scale)
-        const finalScale = (splatScale || 1.0) * autoScale
-        if (finalScale !== 1.0) {
-          console.log('🔧 Applying final SPZ splat scale:', finalScale, '(user:', splatScale || 1.0, '× auto:', autoScale, ')')
-          spzSplatMesh.scale.setScalar(finalScale)
-        }
+        // Apply combined scale (compensation * user scale)
+        const finalScale = PRECISION_COMPENSATION * (splatScale || 1.0)
+        spzSplatMesh.scale.setScalar(finalScale)
 
         // Skip the rest of the logic since SPZ is handled
         // Apply transform
@@ -431,71 +404,7 @@ export class Stage extends System {
           spzSplatMesh.opacity = opacity
         }
 
-        // Apply splatScale if provided
-        if (splatScale !== undefined && splatScale !== 1.0) {
-          console.log('🔧 Applying SPZ splat scale:', splatScale)
-          spzSplatMesh.scale.setScalar(splatScale)
-        }
-
-        // Force high precision in Spark.js shader by patching material
-        // AND apply camera-relative rendering to fix float precision issues
-        if (spzSplatMesh.material) {
-          const material = spzSplatMesh.material
-
-          // Store original onBeforeCompile if exists
-          const originalOnBeforeCompile = material.onBeforeCompile
-
-          // Patch shader to force highp precision AND use camera-relative coordinates
-          material.onBeforeCompile = (shader) => {
-            // Call original if exists
-            if (originalOnBeforeCompile) {
-              originalOnBeforeCompile(shader)
-            }
-
-            // Force highp precision for all floats in both shaders
-            shader.fragmentShader = shader.fragmentShader.replace(
-              /precision\s+(lowp|mediump)\s+float\s*;/g,
-              'precision highp float;'
-            )
-
-            // If no precision directive exists, add it at the top
-            if (!shader.fragmentShader.includes('precision') || !shader.fragmentShader.includes('float;')) {
-              shader.fragmentShader = 'precision highp float;\n' + shader.fragmentShader
-            }
-
-            // Also ensure vertex shader uses highp
-            shader.vertexShader = shader.vertexShader.replace(
-              /precision\s+(lowp|mediump)\s+float\s*;/g,
-              'precision highp float;'
-            )
-
-            if (!shader.vertexShader.includes('precision') || !shader.vertexShader.includes('float;')) {
-              shader.vertexShader = 'precision highp float;\n' + shader.vertexShader
-            }
-
-            // CRITICAL FIX: Make modelViewMatrix calculations use highp explicitly
-            // Replace any mediump/lowp uniforms with highp
-            shader.vertexShader = shader.vertexShader.replace(
-              /uniform\s+(lowp|mediump)\s+(mat4|vec3|vec4)/g,
-              'uniform highp $2'
-            )
-
-            shader.fragmentShader = shader.fragmentShader.replace(
-              /uniform\s+(lowp|mediump)\s+(mat4|vec3|vec4|float)/g,
-              'uniform highp $2'
-            )
-
-            console.log('🔧 Forced highp precision in Spark.js shaders and uniforms')
-            console.log('📊 Vertex shader precision check:', shader.vertexShader.match(/precision\s+\w+\s+float/g))
-            console.log('📊 Fragment shader precision check:', shader.fragmentShader.match(/precision\s+\w+\s+float/g))
-          }
-
-          material.needsUpdate = true
-
-          // Force material to recompile
-          material.dispose()
-          material.needsUpdate = true
-        }
+        // Precision fix is handled by 10x scale in ClientLoader + 0.1x compensation here
 
 
         } catch (error) {
@@ -529,8 +438,11 @@ export class Stage extends System {
           },
           updateSplatScale: async (newScale) => {
             try {
-              console.log('🔧 Updating SPZ splat scale:', newScale)
-              spzSplatMesh.scale.setScalar(newScale)
+              // Apply scale with precision compensation
+              const PRECISION_COMPENSATION = 0.1
+              const finalScale = PRECISION_COMPENSATION * newScale
+              console.log('🔧 Updating SPZ splat scale:', newScale, '(with compensation:', finalScale, ')')
+              spzSplatMesh.scale.setScalar(finalScale)
             } catch (error) {
               console.warn('⚠️ Failed to update splat scale:', error)
             }
@@ -646,6 +558,11 @@ export class Stage extends System {
 
         // Create SplatMesh via fileBytes factory method
         const otherSplatMesh = await splatData.createSplatMesh()
+
+        // CRITICAL FIX: Compensate for the 10x precision scale applied in ClientLoader
+        const PRECISION_COMPENSATION = 0.1
+        const finalScale = PRECISION_COMPENSATION * (splatScale || 1.0)
+        otherSplatMesh.scale.setScalar(finalScale)
 
         // Apply transform
         otherSplatMesh.matrix.copy(matrix)

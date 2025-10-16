@@ -350,10 +350,14 @@ export class ClientLoader extends System {
           const createSplatMesh = async (options = {}) => {
             const { SplatMesh } = await import('@sparkjsdev/spark')
 
+            // CRITICAL FIX: Force 10x scale to avoid float precision artifacts
+            const PRECISION_SCALE = 10.0
+
             const splatMeshOptions = {
               fileBytes: fileBytes,
               fileType: format,
               fileName: file.name,
+              scale: PRECISION_SCALE, // Force larger scale
               ...options
             }
 
@@ -386,10 +390,14 @@ export class ClientLoader extends System {
         const createSplatMesh = async (options = {}) => {
           const { SplatMesh } = await import('@sparkjsdev/spark')
 
+          // CRITICAL FIX: Force 10x scale to avoid float precision artifacts
+          const PRECISION_SCALE = 10.0
+
           const splatMeshOptions = {
             fileBytes: fileBytes,
             fileType: format,
             fileName: file.name,
+            scale: PRECISION_SCALE, // Force larger scale
             ...options
           }
 
@@ -549,10 +557,14 @@ export class ClientLoader extends System {
           const createSplatMesh = async (options = {}) => {
             const { SplatMesh } = await import('@sparkjsdev/spark')
 
+            // CRITICAL FIX: Force 10x scale to avoid float precision artifacts
+            const PRECISION_SCALE = 10.0
+
             const splatMeshOptions = {
               fileBytes: fileBytes,
               fileType: format,
               fileName: file.name,
+              scale: PRECISION_SCALE, // Force larger scale
               ...options
             }
 
@@ -586,10 +598,14 @@ export class ClientLoader extends System {
         const createSplatMesh = async (options = {}) => {
           const { SplatMesh } = await import('@sparkjsdev/spark')
 
+          // CRITICAL FIX: Force 10x scale to avoid float precision artifacts
+          const PRECISION_SCALE = 10.0
+
           const splatMeshOptions = {
             fileBytes: fileBytes,
             fileType: format,
             fileName: file.name,
+            scale: PRECISION_SCALE, // Force larger scale
             ...options
           }
 
