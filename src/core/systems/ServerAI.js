@@ -26,9 +26,10 @@ export class ServerAI extends System {
     this.model = process.env.AI_MODEL || null
     this.effort = process.env.AI_EFFORT || 'minimal'
     this.apiKey = process.env.AI_API_KEY || null
+    this.baseURL = process.env.AI_BASE_URL || null
     if (this.provider && this.model && this.apiKey) {
       if (this.provider === 'openai') {
-        this.client = new OpenAIClient(this.apiKey, this.model, this.effort)
+        this.client = new OpenAIClient(this.apiKey, this.model, this.effort, this.baseURL)
       }
       if (this.provider === 'anthropic') {
         this.client = new AnthropicClient(this.apiKey, this.model)
@@ -186,73 +187,161 @@ export class ServerAI extends System {
 }
 
 class OpenAIClient {
-  constructor(apiKey, model, effort) {
-    this.client = new OpenAI({ apiKey })
+  constructor(apiKey, model, effort, baseURL) {
+    const config = { apiKey }
+    if (baseURL) {
+      let processedBaseURL = baseURL.replace(/\/$/, '')
+      if (baseURL.includes('openai.azure.com')) {
+        // Azure OpenAI: add /v1 for OpenAI-compatible format
+        if (processedBaseURL.endsWith('/openai') && !processedBaseURL.endsWith('/v1')) {
+          processedBaseURL = `${processedBaseURL}/v1`
+        }
+        config.defaultHeaders = { 'api-version': '2024-10-21' }
+      }
+      config.baseURL = processedBaseURL
+    }
+    this.client = new OpenAI(config)
     this.model = model
     this.effort = effort
+    this.isReasoningModel = /^o[134]/.test(model)
   }
 
   async create(prompt) {
-    const resp = await this.client.responses.create({
-      model: this.model,
-      reasoning: { effort: this.effort },
-      // text: { verbosity: 'low' },
-      // max_output_tokens: 8192,
-      instructions: `
-        ${docs}
-        ===============
-        You are an artist and code generator. Always respond with raw code only, never use markdown code blocks or any other formatting.`,
-      input: `Respond with the javascript needed to generate the following:\n\n"${prompt}"`,
-    })
-    return resp.output_text
+    if (this.isReasoningModel) {
+      const resp = await this.client.responses.create({
+        model: this.model,
+        reasoning: { effort: this.effort },
+        instructions: `
+          ${docs}
+          ===============
+          You are an artist and code generator. Always respond with raw code only, never use markdown code blocks or any other formatting.`,
+        input: `Respond with the javascript needed to generate the following:\n\n"${prompt}"`,
+      })
+      return resp.output_text
+    } else {
+      const resp = await this.client.chat.completions.create({
+        model: this.model,
+        messages: [
+          {
+            role: 'system',
+            content: `
+              ${docs}
+              ===============
+              You are an artist and code generator. Always respond with raw code only, never use markdown code blocks or any other formatting.`,
+          },
+          {
+            role: 'user',
+            content: `Respond with the javascript needed to generate the following:\n\n"${prompt}"`,
+          },
+        ],
+      })
+      return resp.choices[0].message.content
+    }
   }
 
   async edit(code, prompt) {
-    const resp = await this.client.responses.create({
-      model: this.model,
-      reasoning: { effort: this.effort },
-      // text: { verbosity: 'low' },
-      // max_output_tokens: 8192,
-      instructions: `
-        ${docs}
-        ===============
-        You are an artist and code generator. Always respond with raw code only, never use markdown code blocks or any other formatting.
-        Here is the existing script that you will be working with:
-        ===============
-        ${code}`,
-      input: `Please edit the code above to satisfy the following request:\n\n"${prompt}"`,
-    })
-    return resp.output_text
+    if (this.isReasoningModel) {
+      const resp = await this.client.responses.create({
+        model: this.model,
+        reasoning: { effort: this.effort },
+        instructions: `
+          ${docs}
+          ===============
+          You are an artist and code generator. Always respond with raw code only, never use markdown code blocks or any other formatting.
+          Here is the existing script that you will be working with:
+          ===============
+          ${code}`,
+        input: `Please edit the code above to satisfy the following request:\n\n"${prompt}"`,
+      })
+      return resp.output_text
+    } else {
+      const resp = await this.client.chat.completions.create({
+        model: this.model,
+        messages: [
+          {
+            role: 'system',
+            content: `
+              ${docs}
+              ===============
+              You are an artist and code generator. Always respond with raw code only, never use markdown code blocks or any other formatting.
+              Here is the existing script that you will be working with:
+              ===============
+              ${code}`,
+          },
+          {
+            role: 'user',
+            content: `Please edit the code above to satisfy the following request:\n\n"${prompt}"`,
+          },
+        ],
+      })
+      return resp.choices[0].message.content
+    }
   }
 
   async fix(code, error) {
-    const resp = await this.client.responses.create({
-      model: this.model,
-      reasoning: { effort: this.effort },
-      // text: { verbosity: 'low' },
-      // max_output_tokens: 8192,
-      instructions: `
-        ${docs}
-        ===============
-        You are an artist and code generator. Always respond with raw code only, never use markdown code blocks or any other formatting.
-        Here is the existing script that you will be working with:
-        ===============
-        ${code}`,
-      input: `This code has an error please fix it:\n\n"${JSON.stringify(error, null, 2)}"`,
-    })
-    return resp.output_text
+    if (this.isReasoningModel) {
+      const resp = await this.client.responses.create({
+        model: this.model,
+        reasoning: { effort: this.effort },
+        instructions: `
+          ${docs}
+          ===============
+          You are an artist and code generator. Always respond with raw code only, never use markdown code blocks or any other formatting.
+          Here is the existing script that you will be working with:
+          ===============
+          ${code}`,
+        input: `This code has an error please fix it:\n\n"${JSON.stringify(error, null, 2)}"`,
+      })
+      return resp.output_text
+    } else {
+      const resp = await this.client.chat.completions.create({
+        model: this.model,
+        messages: [
+          {
+            role: 'system',
+            content: `
+              ${docs}
+              ===============
+              You are an artist and code generator. Always respond with raw code only, never use markdown code blocks or any other formatting.
+              Here is the existing script that you will be working with:
+              ===============
+              ${code}`,
+          },
+          {
+            role: 'user',
+            content: `This code has an error please fix it:\n\n"${JSON.stringify(error, null, 2)}"`,
+          },
+        ],
+      })
+      return resp.choices[0].message.content
+    }
   }
 
   async classify(prompt) {
-    const resp = await this.client.responses.create({
-      model: this.model,
-      reasoning: { effort: this.effort },
-      // text: { verbosity: 'low' },
-      // max_output_tokens: 8192,
-      instructions: `You are a classifier. We will give you a prompt that a user has entered to generate a 3D object and your job is respond with a short name for the object. For example if someone prompts "a cool gamer desk with neon lights" you would respond with something like "Gamer Desk" because it is a short descriptive name that captures the essence of the object.`,
-      input: `Please classify the following prompt:\n\n"${prompt}"`,
-    })
-    return resp.output_text
+    if (this.isReasoningModel) {
+      const resp = await this.client.responses.create({
+        model: this.model,
+        reasoning: { effort: this.effort },
+        instructions: `You are a classifier. We will give you a prompt that a user has entered to generate a 3D object and your job is respond with a short name for the object. For example if someone prompts "a cool gamer desk with neon lights" you would respond with something like "Gamer Desk" because it is a short descriptive name that captures the essence of the object.`,
+        input: `Please classify the following prompt:\n\n"${prompt}"`,
+      })
+      return resp.output_text
+    } else {
+      const resp = await this.client.chat.completions.create({
+        model: this.model,
+        messages: [
+          {
+            role: 'system',
+            content: `You are a classifier. We will give you a prompt that a user has entered to generate a 3D object and your job is respond with a short name for the object. For example if someone prompts "a cool gamer desk with neon lights" you would respond with something like "Gamer Desk" because it is a short descriptive name that captures the essence of the object.`,
+          },
+          {
+            role: 'user',
+            content: `Please classify the following prompt:\n\n"${prompt}"`,
+          },
+        ],
+      })
+      return resp.choices[0].message.content
+    }
   }
 }
 
