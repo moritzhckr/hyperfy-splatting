@@ -36,7 +36,7 @@ const ifcTypeColors = {
  * IFC to Nodes Converter
  *
  * Converts IFC models loaded by web-ifc-three into Hyperfy's node structure
- * Similar to glbToNodes but specifically for IFC models
+ * Creates a hierarchical node structure with one node per IFC element
  */
 export function ifcToNodes(ifcModel, world) {
   function getColorForIFCType(ifcType) {
@@ -44,7 +44,7 @@ export function ifcToNodes(ifcModel, world) {
     return ifcTypeColors[type] || ifcTypeColors.DEFAULT
   }
 
-  function parse(object3ds, parentNode) {
+  function parse(object3ds, parentNode, createElementNodes = false) {
     for (const object3d of object3ds) {
       const props = object3d.userData || {}
 
@@ -115,13 +115,23 @@ export function ifcToNodes(ifcModel, world) {
     id: '$root',
   })
 
+  console.log('[IFC] Creating node hierarchy, ifcModel:', {
+    type: ifcModel.type,
+    hasChildren: ifcModel.children && ifcModel.children.length > 0,
+    childrenCount: ifcModel.children?.length,
+  })
+
   // Parse IFC model children
   if (ifcModel.children && ifcModel.children.length > 0) {
+    console.log('[IFC] Parsing', ifcModel.children.length, 'children')
     parse(ifcModel.children, root)
   } else {
     // Fallback if model structure is different
+    console.log('[IFC] Parsing ifcModel directly as single node')
     parse([ifcModel], root)
   }
+
+  console.log('[IFC] Root node created with', root.children?.length || 0, 'children')
 
   return root
 }

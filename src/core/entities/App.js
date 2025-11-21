@@ -434,7 +434,9 @@ export class App extends Entity {
     // note: this is currently just used in the nodes tab in the app inspector
     // to get a clean hierarchy
     if (!this.blueprint) return
-    const type = this.blueprint.model.endsWith('vrm') ? 'avatar' : 'model'
+    let type = 'model'
+    if (this.blueprint.model.endsWith('vrm')) type = 'avatar'
+    if (this.blueprint.model.endsWith('ifc')) type = 'ifc'
     let glb = this.world.loader.get(type, this.blueprint.model)
     if (!glb) return
     return glb.toNodes()

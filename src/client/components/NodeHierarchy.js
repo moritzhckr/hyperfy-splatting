@@ -15,7 +15,13 @@ import { cls } from './cls'
 
 export function NodeHierarchy({ app }) {
   const [selectedNode, setSelectedNode] = useState(null)
-  const rootNode = useMemo(() => app.getNodes(), [])
+  const rootNode = useMemo(() => {
+    const nodes = app.getNodes()
+    console.log('[NodeHierarchy] app.getNodes() returned:', nodes)
+    console.log('[NodeHierarchy] nodes children:', nodes?.children)
+    console.log('[NodeHierarchy] nodes type:', nodes?.type)
+    return nodes
+  }, [app])
 
   useEffect(() => {
     if (rootNode && !selectedNode) {

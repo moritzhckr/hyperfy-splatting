@@ -249,172 +249,15 @@ export class ClientLoader extends System {
           const url = URL.createObjectURL(file)
 
           console.log('[IFC] Loading IFC file:', file.name, 'Size:', file.size)
+          console.log('[IFC] Loading from:', url)
           const ifcModel = await this.ifcLoader.loadAsync(url)
           console.log('[IFC] IFC model loaded successfully, modelID:', ifcModel.modelID)
+          console.log('[IFC] Model type:', ifcModel.type, 'Is Mesh:', ifcModel.type === 'Mesh')
+          console.log('[IFC] Has geometry:', !!ifcModel.geometry)
+          console.log('[IFC] Has children:', ifcModel.children?.length)
 
-          // IFC type to color mapping
-          const ifcTypeColors = {
-            [WEBIFC.IFCWALL]: new THREE.Color(0xf5e6d3),
-            [WEBIFC.IFCWALLSTANDARDCASE]: new THREE.Color(0xf5e6d3),
-            [WEBIFC.IFCWINDOW]: new THREE.Color(0x87ceeb),
-            [WEBIFC.IFCDOOR]: new THREE.Color(0x8b4513),
-            [WEBIFC.IFCSLAB]: new THREE.Color(0xe0e0e0),
-            [WEBIFC.IFCCOLUMN]: new THREE.Color(0xb0b0b0),
-            [WEBIFC.IFCBEAM]: new THREE.Color(0x8b7355),
-            [WEBIFC.IFCROOF]: new THREE.Color(0xa52a2a),
-            [WEBIFC.IFCSTAIR]: new THREE.Color(0x708090),
-            [WEBIFC.IFCRAILING]: new THREE.Color(0x696969),
-            [WEBIFC.IFCFURNISHINGELEMENT]: new THREE.Color(0xff8c00),
-            [WEBIFC.IFCFURNITURE]: new THREE.Color(0xffa500),
-            [WEBIFC.IFCPLATE]: new THREE.Color(0xd3d3d3),
-            [WEBIFC.IFCMEMBER]: new THREE.Color(0x999999),
-          }
-          const defaultColor = new THREE.Color(0xcccccc)
-
-          // Apply vertex colors based on expressID attributes in geometry
-          const applyVertexColors = async (mesh, modelID, manager) => {
-            if (!mesh.geometry) {
-              console.log('[IFC] No geometry found')
-              return
-            }
-
-            if (!mesh.geometry.attributes.expressID) {
-              console.log('[IFC] No expressID attribute in geometry - applying single random color')
-              // Fallback: apply a single random color to the whole mesh
-              const randomColor = new THREE.Color().setHSL(Math.random(), 0.7, 0.6)
-              mesh.material = new THREE.MeshStandardMaterial({
-                color: randomColor,
-                roughness: 0.6,
-                metalness: 0.1,
-                side: THREE.DoubleSide,
-              })
-              mesh.userData.customMaterial = mesh.material
-              mesh.userData.customColor = randomColor.getHex()
-              return
-            }
-
-            const geometry = mesh.geometry
-            const expressIDs = geometry.attributes.expressID.array
-            const vertexCount = geometry.attributes.position.count
-
-            console.log('[IFC] Processing', vertexCount, 'vertices with', expressIDs.length, 'expressIDs')
-
-            // Create color attribute
-            const colors = new Float32Array(vertexCount * 3)
-
-            // Build expressID -> color cache based on IFC type
-            const colorCache = new Map()
-            const typeStats = new Map()
-            const uniqueIDs = Array.from(new Set(expressIDs))
-            console.log('[IFC] Found', uniqueIDs.length, 'unique IFC elements')
-
-            // Try to get IFC type for each element and assign color
-            const ifcAPI = manager.ifcAPI
-            const errorStats = new Map()
-
-            console.log('[IFC] ifcAPI:', ifcAPI)
-            console.log('[IFC] Testing first expressID:', uniqueIDs[0])
-
-            for (const expressID of uniqueIDs) {
-              try {
-                // Use low-level API to get element data
-                const element = ifcAPI.GetLine(modelID, expressID)
-
-                if (element) {
-                  // Get the IFC type number
-                  const typeNum = element.type
-
-                  // Convert type number to name
-                  let typeName = null
-                  for (const [key, value] of Object.entries(WEBIFC)) {
-                    if (value === typeNum && key.startsWith('IFC')) {
-                      typeName = key
-                      break
-                    }
-                  }
-
-                  if (typeName) {
-                    // Count types
-                    typeStats.set(typeName, (typeStats.get(typeName) || 0) + 1)
-
-                    // Assign color based on type
-                    const color = ifcTypeColors[typeNum] || defaultColor
-                    colorCache.set(expressID, color)
-
-                    // Log first element of each type
-                    if (typeStats.get(typeName) === 1) {
-                      console.log(`[IFC] First ${typeName} (${typeNum}):`, { expressID, element, color: color.getHexString() })
-                    }
-                  } else {
-                    throw new Error(`Unknown type number: ${typeNum}`)
-                  }
-                } else {
-                  throw new Error('Element not found')
-                }
-              } catch (err) {
-                // Track error types
-                const errMsg = err.message || 'Unknown error'
-                errorStats.set(errMsg, (errorStats.get(errMsg) || 0) + 1)
-
-                // Only log first few errors
-                if (errorStats.get(errMsg) <= 3) {
-                  console.log(`[IFC] Error for expressID ${expressID}:`, err)
-                }
-
-                // Fallback: use golden ratio color
-                const hue = (expressID * 0.618033988749895) % 1
-                const color = new THREE.Color().setHSL(hue, 0.7, 0.6)
-                colorCache.set(expressID, color)
-              }
-            }
-
-            console.log('[IFC] Error statistics:', Object.fromEntries(errorStats))
-
-            // Log type statistics
-            console.log('[IFC] Type statistics:', Object.fromEntries(typeStats))
-            console.log('[IFC] Generated', colorCache.size, 'colors for elements')
-
-            // Apply colors to vertices based on their expressID
-            for (let i = 0; i < vertexCount; i++) {
-              const expressID = expressIDs[i]
-              const color = colorCache.get(expressID) || defaultColor
-
-              colors[i * 3] = color.r
-              colors[i * 3 + 1] = color.g
-              colors[i * 3 + 2] = color.b
-            }
-
-            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
-            console.log('[IFC] Applied vertex colors')
-
-            // Update material to use vertex colors with double-sided rendering
-            mesh.material = new THREE.MeshStandardMaterial({
-              vertexColors: true,
-              roughness: 0.6,
-              metalness: 0.1,
-              side: THREE.DoubleSide,
-            })
-            mesh.userData.customMaterial = mesh.material
-
-            console.log('[IFC] Material updated to use vertex colors (double-sided)')
-          }
-
-          // Apply colors to the model
-          console.log('[IFC] Checking model for coloring:', {
-            modelID: ifcModel.modelID,
-            type: ifcModel.type,
-            hasGeometry: !!ifcModel.geometry,
-            children: ifcModel.children?.length,
-          })
-
-          if (ifcModel.modelID !== undefined && ifcModel.type === 'Mesh') {
-            console.log('[IFC] Applying vertex colors...')
-            await applyVertexColors(ifcModel, ifcModel.modelID, this.ifcLoader.ifcManager)
-          } else {
-            console.log('[IFC] Skipping vertex colors - conditions not met')
-            console.log('[IFC] modelID check:', ifcModel.modelID !== undefined)
-            console.log('[IFC] type check:', ifcModel.type === 'Mesh', '(actual type:', ifcModel.type, ')')
-          }
+          // Apply color processing
+          await this.processIFCColors(ifcModel, file)
 
           // Convert IFC model to Hyperfy nodes
           const node = ifcToNodes(ifcModel, this.world)
@@ -536,6 +379,41 @@ export class ClientLoader extends System {
         return avatar
       })
     }
+    if (type === 'ifc') {
+      console.log('[IFC] insert() called for:', file.name)
+      // Use the same loading logic as in load() method
+      promise = (async () => {
+        try {
+          console.log('[IFC] Loading IFC file via insert():', file.name, 'Size:', file.size)
+          const ifcModel = await this.ifcLoader.loadAsync(localUrl)
+          console.log('[IFC] IFC model loaded successfully, modelID:', ifcModel.modelID)
+
+          // Apply the same color processing as in load()
+          await this.processIFCColors(ifcModel, file)
+
+          // Convert to nodes
+          const node = ifcToNodes(ifcModel, this.world)
+          console.log('[IFC] Converted to nodes via insert()')
+
+          const ifc = {
+            toNodes() {
+              return node.clone(true)
+            },
+            getStats() {
+              const stats = node.getStats(true)
+              stats.fileBytes = file.size
+              return stats
+            },
+          }
+
+          this.results.set(key, ifc)
+          return ifc
+        } catch (err) {
+          console.error('[IFC] Error in insert():', err)
+          throw err
+        }
+      })()
+    }
     if (type === 'script') {
       promise = new Promise(async (resolve, reject) => {
         try {
@@ -585,6 +463,135 @@ export class ClientLoader extends System {
       })
     }
     this.promises.set(key, promise)
+  }
+
+  async processIFCColors(ifcModel, file) {
+    // IFC type to color mapping
+    const ifcTypeColors = {
+      [WEBIFC.IFCWALL]: new THREE.Color(0xf5e6d3),
+      [WEBIFC.IFCWALLSTANDARDCASE]: new THREE.Color(0xf5e6d3),
+      [WEBIFC.IFCWINDOW]: new THREE.Color(0x87ceeb),
+      [WEBIFC.IFCDOOR]: new THREE.Color(0x8b4513),
+      [WEBIFC.IFCSLAB]: new THREE.Color(0xe0e0e0),
+      [WEBIFC.IFCCOLUMN]: new THREE.Color(0xb0b0b0),
+      [WEBIFC.IFCBEAM]: new THREE.Color(0x8b7355),
+      [WEBIFC.IFCROOF]: new THREE.Color(0xa52a2a),
+      [WEBIFC.IFCSTAIR]: new THREE.Color(0x708090),
+      [WEBIFC.IFCRAILING]: new THREE.Color(0x696969),
+      [WEBIFC.IFCFURNISHINGELEMENT]: new THREE.Color(0xff8c00),
+      [WEBIFC.IFCFURNITURE]: new THREE.Color(0xffa500),
+      [WEBIFC.IFCPLATE]: new THREE.Color(0xd3d3d3),
+      [WEBIFC.IFCMEMBER]: new THREE.Color(0x999999),
+    }
+    const defaultColor = new THREE.Color(0xcccccc)
+
+    // Check if model has geometry
+    if (!ifcModel.geometry) {
+      console.log('[IFC] No geometry found in model')
+      return
+    }
+
+    if (!ifcModel.geometry.attributes.expressID) {
+      console.log('[IFC] No expressID attribute - applying single random color')
+      const randomColor = new THREE.Color().setHSL(Math.random(), 0.7, 0.6)
+      ifcModel.material = new THREE.MeshStandardMaterial({
+        color: randomColor,
+        roughness: 0.6,
+        metalness: 0.1,
+        side: THREE.DoubleSide,
+      })
+      ifcModel.userData.customMaterial = ifcModel.material
+      ifcModel.userData.customColor = randomColor.getHex()
+      return
+    }
+
+    const geometry = ifcModel.geometry
+    const expressIDs = geometry.attributes.expressID.array
+    const vertexCount = geometry.attributes.position.count
+
+    console.log('[IFC] Processing', vertexCount, 'vertices with', expressIDs.length, 'expressIDs')
+
+    // Create color attribute
+    const colors = new Float32Array(vertexCount * 3)
+
+    // Build expressID -> color cache based on IFC type
+    const colorCache = new Map()
+    const typeStats = new Map()
+    const uniqueIDs = Array.from(new Set(expressIDs))
+    console.log('[IFC] Found', uniqueIDs.length, 'unique IFC elements')
+
+    // Use GetLineIDsWithType to group elements by type FIRST
+    const ifcAPI = this.ifcLoader.ifcManager.ifcAPI
+    console.log('[IFC] Using GetLineIDsWithType to categorize elements...')
+
+    // For each IFC type, get all IDs and assign colors
+    for (const [typeNum, color] of Object.entries(ifcTypeColors)) {
+      try {
+        const idsOfType = ifcAPI.GetLineIDsWithType(ifcModel.modelID, parseInt(typeNum))
+        const idsArray = Array.from(idsOfType)
+
+        if (idsArray.length > 0) {
+          // Find the type name
+          let typeName = 'UNKNOWN'
+          for (const [key, value] of Object.entries(WEBIFC)) {
+            if (value === parseInt(typeNum)) {
+              typeName = key
+              break
+            }
+          }
+
+          typeStats.set(typeName, idsArray.length)
+
+          // Assign color to all elements of this type
+          for (const expressID of idsArray) {
+            colorCache.set(expressID, color)
+          }
+
+          console.log(`[IFC] ${typeName}: ${idsArray.length} elements, color: #${color.getHexString()}`)
+        }
+      } catch (err) {
+        // Silently skip types that don't exist in this model
+      }
+    }
+
+    // Assign random colors to any remaining elements not categorized
+    const uncategorized = uniqueIDs.filter(id => !colorCache.has(id))
+    if (uncategorized.length > 0) {
+      console.log(`[IFC] ${uncategorized.length} uncategorized elements, assigning random colors`)
+      for (const expressID of uncategorized) {
+        const hue = (expressID * 0.618033988749895) % 1
+        const color = new THREE.Color().setHSL(hue, 0.7, 0.6)
+        colorCache.set(expressID, color)
+      }
+    }
+
+    // Log type statistics
+    console.log('[IFC] Type statistics:', Object.fromEntries(typeStats))
+    console.log('[IFC] Generated', colorCache.size, 'colors for elements')
+
+    // Apply colors to vertices based on their expressID
+    for (let i = 0; i < vertexCount; i++) {
+      const expressID = expressIDs[i]
+      const color = colorCache.get(expressID) || defaultColor
+
+      colors[i * 3] = color.r
+      colors[i * 3 + 1] = color.g
+      colors[i * 3 + 2] = color.b
+    }
+
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+    console.log('[IFC] Applied vertex colors')
+
+    // Update material to use vertex colors with double-sided rendering
+    ifcModel.material = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.6,
+      metalness: 0.1,
+      side: THREE.DoubleSide,
+    })
+    ifcModel.userData.customMaterial = ifcModel.material
+
+    console.log('[IFC] Material updated to use vertex colors (double-sided)')
   }
 
   destroy() {
