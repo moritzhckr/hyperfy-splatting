@@ -6,6 +6,7 @@ import {
   DumbbellIcon,
   EyeIcon,
   FolderIcon,
+  LayersIcon,
   MagnetIcon,
   PersonStandingIcon,
 } from 'lucide-react'

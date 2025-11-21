@@ -448,6 +448,12 @@ export const fileKinds = {
     exts: ['mp3'],
     placeholder: 'mp3',
   },
+  ifc: {
+    type: 'ifc',
+    accept: '.ifc',
+    exts: ['ifc'],
+    placeholder: 'ifc',
+  },
 }
 
 export function FieldFile({ world, label, hint, kind: kindName, value, onChange }) {

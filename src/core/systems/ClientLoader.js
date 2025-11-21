@@ -2,11 +2,14 @@ import * as THREE from '../extras/three'
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { VRMLoaderPlugin } from '@pixiv/three-vrm'
+import { IFCLoader } from '../libs/ifcloader/IFCLoader.js'
+import * as WEBIFC from 'web-ifc'
 
 import { System } from './System'
 import { createNode } from '../extras/createNode'
 import { createVRMFactory } from '../extras/createVRMFactory'
 import { glbToNodes } from '../extras/glbToNodes'
+import { ifcToNodes } from '../extras/ifcToNodes'
 import { createEmoteFactory } from '../extras/createEmoteFactory'
 import { TextureLoader } from 'three'
 import { formatBytes } from '../extras/formatBytes'
@@ -32,6 +35,9 @@ export class ClientLoader extends System {
     this.texLoader = new TextureLoader()
     this.gltfLoader = new GLTFLoader()
     this.gltfLoader.register(parser => new VRMLoaderPlugin(parser))
+    this.ifcLoader = new IFCLoader()
+    // WASM files are in build/public/ which is served from root
+    this.ifcLoader.ifcManager.setWasmPath('')
     this.preloadItems = []
   }
 
@@ -237,6 +243,204 @@ export class ClientLoader extends System {
         this.results.set(key, audioBuffer)
         return audioBuffer
       }
+      if (type === 'ifc') {
+        try {
+          const buffer = await file.arrayBuffer()
+          const url = URL.createObjectURL(file)
+
+          console.log('[IFC] Loading IFC file:', file.name, 'Size:', file.size)
+          const ifcModel = await this.ifcLoader.loadAsync(url)
+          console.log('[IFC] IFC model loaded successfully, modelID:', ifcModel.modelID)
+
+          // IFC type to color mapping
+          const ifcTypeColors = {
+            [WEBIFC.IFCWALL]: new THREE.Color(0xf5e6d3),
+            [WEBIFC.IFCWALLSTANDARDCASE]: new THREE.Color(0xf5e6d3),
+            [WEBIFC.IFCWINDOW]: new THREE.Color(0x87ceeb),
+            [WEBIFC.IFCDOOR]: new THREE.Color(0x8b4513),
+            [WEBIFC.IFCSLAB]: new THREE.Color(0xe0e0e0),
+            [WEBIFC.IFCCOLUMN]: new THREE.Color(0xb0b0b0),
+            [WEBIFC.IFCBEAM]: new THREE.Color(0x8b7355),
+            [WEBIFC.IFCROOF]: new THREE.Color(0xa52a2a),
+            [WEBIFC.IFCSTAIR]: new THREE.Color(0x708090),
+            [WEBIFC.IFCRAILING]: new THREE.Color(0x696969),
+            [WEBIFC.IFCFURNISHINGELEMENT]: new THREE.Color(0xff8c00),
+            [WEBIFC.IFCFURNITURE]: new THREE.Color(0xffa500),
+            [WEBIFC.IFCPLATE]: new THREE.Color(0xd3d3d3),
+            [WEBIFC.IFCMEMBER]: new THREE.Color(0x999999),
+          }
+          const defaultColor = new THREE.Color(0xcccccc)
+
+          // Apply vertex colors based on expressID attributes in geometry
+          const applyVertexColors = async (mesh, modelID, manager) => {
+            if (!mesh.geometry) {
+              console.log('[IFC] No geometry found')
+              return
+            }
+
+            if (!mesh.geometry.attributes.expressID) {
+              console.log('[IFC] No expressID attribute in geometry - applying single random color')
+              // Fallback: apply a single random color to the whole mesh
+              const randomColor = new THREE.Color().setHSL(Math.random(), 0.7, 0.6)
+              mesh.material = new THREE.MeshStandardMaterial({
+                color: randomColor,
+                roughness: 0.6,
+                metalness: 0.1,
+                side: THREE.DoubleSide,
+              })
+              mesh.userData.customMaterial = mesh.material
+              mesh.userData.customColor = randomColor.getHex()
+              return
+            }
+
+            const geometry = mesh.geometry
+            const expressIDs = geometry.attributes.expressID.array
+            const vertexCount = geometry.attributes.position.count
+
+            console.log('[IFC] Processing', vertexCount, 'vertices with', expressIDs.length, 'expressIDs')
+
+            // Create color attribute
+            const colors = new Float32Array(vertexCount * 3)
+
+            // Build expressID -> color cache based on IFC type
+            const colorCache = new Map()
+            const typeStats = new Map()
+            const uniqueIDs = Array.from(new Set(expressIDs))
+            console.log('[IFC] Found', uniqueIDs.length, 'unique IFC elements')
+
+            // Try to get IFC type for each element and assign color
+            const ifcAPI = manager.ifcAPI
+            const errorStats = new Map()
+
+            console.log('[IFC] ifcAPI:', ifcAPI)
+            console.log('[IFC] Testing first expressID:', uniqueIDs[0])
+
+            for (const expressID of uniqueIDs) {
+              try {
+                // Use low-level API to get element data
+                const element = ifcAPI.GetLine(modelID, expressID)
+
+                if (element) {
+                  // Get the IFC type number
+                  const typeNum = element.type
+
+                  // Convert type number to name
+                  let typeName = null
+                  for (const [key, value] of Object.entries(WEBIFC)) {
+                    if (value === typeNum && key.startsWith('IFC')) {
+                      typeName = key
+                      break
+                    }
+                  }
+
+                  if (typeName) {
+                    // Count types
+                    typeStats.set(typeName, (typeStats.get(typeName) || 0) + 1)
+
+                    // Assign color based on type
+                    const color = ifcTypeColors[typeNum] || defaultColor
+                    colorCache.set(expressID, color)
+
+                    // Log first element of each type
+                    if (typeStats.get(typeName) === 1) {
+                      console.log(`[IFC] First ${typeName} (${typeNum}):`, { expressID, element, color: color.getHexString() })
+                    }
+                  } else {
+                    throw new Error(`Unknown type number: ${typeNum}`)
+                  }
+                } else {
+                  throw new Error('Element not found')
+                }
+              } catch (err) {
+                // Track error types
+                const errMsg = err.message || 'Unknown error'
+                errorStats.set(errMsg, (errorStats.get(errMsg) || 0) + 1)
+
+                // Only log first few errors
+                if (errorStats.get(errMsg) <= 3) {
+                  console.log(`[IFC] Error for expressID ${expressID}:`, err)
+                }
+
+                // Fallback: use golden ratio color
+                const hue = (expressID * 0.618033988749895) % 1
+                const color = new THREE.Color().setHSL(hue, 0.7, 0.6)
+                colorCache.set(expressID, color)
+              }
+            }
+
+            console.log('[IFC] Error statistics:', Object.fromEntries(errorStats))
+
+            // Log type statistics
+            console.log('[IFC] Type statistics:', Object.fromEntries(typeStats))
+            console.log('[IFC] Generated', colorCache.size, 'colors for elements')
+
+            // Apply colors to vertices based on their expressID
+            for (let i = 0; i < vertexCount; i++) {
+              const expressID = expressIDs[i]
+              const color = colorCache.get(expressID) || defaultColor
+
+              colors[i * 3] = color.r
+              colors[i * 3 + 1] = color.g
+              colors[i * 3 + 2] = color.b
+            }
+
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+            console.log('[IFC] Applied vertex colors')
+
+            // Update material to use vertex colors with double-sided rendering
+            mesh.material = new THREE.MeshStandardMaterial({
+              vertexColors: true,
+              roughness: 0.6,
+              metalness: 0.1,
+              side: THREE.DoubleSide,
+            })
+            mesh.userData.customMaterial = mesh.material
+
+            console.log('[IFC] Material updated to use vertex colors (double-sided)')
+          }
+
+          // Apply colors to the model
+          console.log('[IFC] Checking model for coloring:', {
+            modelID: ifcModel.modelID,
+            type: ifcModel.type,
+            hasGeometry: !!ifcModel.geometry,
+            children: ifcModel.children?.length,
+          })
+
+          if (ifcModel.modelID !== undefined && ifcModel.type === 'Mesh') {
+            console.log('[IFC] Applying vertex colors...')
+            await applyVertexColors(ifcModel, ifcModel.modelID, this.ifcLoader.ifcManager)
+          } else {
+            console.log('[IFC] Skipping vertex colors - conditions not met')
+            console.log('[IFC] modelID check:', ifcModel.modelID !== undefined)
+            console.log('[IFC] type check:', ifcModel.type === 'Mesh', '(actual type:', ifcModel.type, ')')
+          }
+
+          // Convert IFC model to Hyperfy nodes
+          const node = ifcToNodes(ifcModel, this.world)
+          console.log('[IFC] Converted to nodes')
+
+          const ifc = {
+            toNodes() {
+              return node.clone(true)
+            },
+            getStats() {
+              const stats = node.getStats(true)
+              stats.fileBytes = file.size
+              return stats
+            },
+          }
+
+          // Cleanup
+          URL.revokeObjectURL(url)
+
+          this.results.set(key, ifc)
+          return ifc
+        } catch (err) {
+          console.error('[IFC] Error loading IFC file:', err)
+          throw err
+        }
+      }
     })
     this.promises.set(key, promise)
     return promise
@@ -351,6 +555,30 @@ export class ClientLoader extends System {
           const audioBuffer = await this.world.audio.ctx.decodeAudioData(arrayBuffer)
           this.results.set(key, audioBuffer)
           resolve(audioBuffer)
+        } catch (err) {
+          reject(err)
+        }
+      })
+    }
+    if (type === 'ifc') {
+      promise = new Promise(async (resolve, reject) => {
+        try {
+          const ifcModel = await this.ifcLoader.loadAsync(localUrl)
+          const node = ifcToNodes(ifcModel, this.world)
+
+          const ifc = {
+            toNodes() {
+              return node.clone(true)
+            },
+            getStats() {
+              const stats = node.getStats(true)
+              stats.fileBytes = file.size
+              return stats
+            },
+          }
+
+          this.results.set(key, ifc)
+          resolve(ifc)
         } catch (err) {
           reject(err)
         }

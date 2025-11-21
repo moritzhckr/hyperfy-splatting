@@ -1001,8 +1001,9 @@ function Add({ world, hidden }) {
 const extToType = {
   glb: 'model',
   vrm: 'avatar',
+  ifc: 'ifc',
 }
-const allowedModels = ['glb', 'vrm']
+const allowedModels = ['glb', 'vrm', 'ifc']
 let showTransforms = false
 
 function App({ world, hidden }) {
@@ -1325,7 +1326,7 @@ function AppModelBtn({ value, onChange, children }) {
       `}
       onClick={handleDownload}
     >
-      <input key={key} type='file' accept='.glb,.vrm' onChange={handleChange} />
+      <input key={key} type='file' accept='.glb,.vrm,.ifc' onChange={handleChange} />
       {children}
     </label>
   )

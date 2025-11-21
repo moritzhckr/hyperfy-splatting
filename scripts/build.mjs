@@ -58,6 +58,14 @@ const clientHtmlDest = path.join(rootDir, 'build/public/index.html')
             const physxWasmSrc = path.join(rootDir, 'src/core/physx-js-webidl.wasm')
             const physxWasmDest = path.join(rootDir, 'build/public/physx-js-webidl.wasm')
             await fs.copy(physxWasmSrc, physxWasmDest)
+            // copy ifc wasm files to public
+            const ifcWasmDir = path.join(rootDir, 'node_modules/web-ifc')
+            const ifcWasmFiles = ['web-ifc.wasm', 'web-ifc-mt.wasm']
+            for (const wasmFile of ifcWasmFiles) {
+              const src = path.join(ifcWasmDir, wasmFile)
+              const dest = path.join(rootDir, 'build/public', wasmFile)
+              await fs.copy(src, dest)
+            }
             // find js output files
             const metafile = result.metafile
             const outputFiles = Object.keys(metafile.outputs)

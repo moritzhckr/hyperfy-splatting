@@ -182,6 +182,27 @@ export class ServerLoader extends System {
         reject(null)
       })
     }
+    if (type === 'ifc') {
+      promise = new Promise(async (resolve, reject) => {
+        try {
+          // NOTE: IFC parsing on the server is too computationally intensive
+          // Server creates only a placeholder node similar to avatar handling
+          let node
+          const ifc = {
+            toNodes: () => {
+              if (!node) {
+                node = createNode('group', { id: '$ifc_placeholder' })
+              }
+              return node.clone(true)
+            },
+          }
+          this.results.set(key, ifc)
+          resolve(ifc)
+        } catch (err) {
+          reject(err)
+        }
+      })
+    }
     this.promises.set(key, promise)
     return promise
   }

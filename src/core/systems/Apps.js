@@ -417,4 +417,8 @@ export const fileRemaps = {
     field.type = 'file'
     field.kind = 'audio'
   },
+  ifc: field => {
+    field.type = 'file'
+    field.kind = 'ifc'
+  },
 }

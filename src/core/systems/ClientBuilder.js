@@ -1055,6 +1055,9 @@ export class ClientBuilder extends System {
     if (ext === 'glb') {
       this.addModel(file, transform)
     }
+    if (ext === 'ifc') {
+      this.addIFC(file, transform)
+    }
     if (ext === 'vrm') {
       const canPlace = this.canBuild()
       this.addAvatar(file, transform, canPlace)
@@ -1200,6 +1203,66 @@ export class ClientBuilder extends System {
     }
     const app = this.world.entities.add(data, true)
     // upload the glb
+    await this.world.network.upload(file)
+    // mark as uploaded so other clients can load it in
+    app.onUploaded()
+  }
+
+  async addIFC(file, transform) {
+    // immutable hash the file
+    const hash = await hashFile(file)
+    // use hash as ifc filename
+    const filename = `${hash}.ifc`
+    // canonical url to this file
+    const url = `asset://${filename}`
+    // cache file locally so this client can insta-load it
+    this.world.loader.insert('ifc', url, file)
+
+    // make blueprint
+    const blueprint = {
+      id: uuid(),
+      version: 0,
+      name: file.name.split('.')[0],
+      image: null,
+      author: null,
+      url: null,
+      desc: `IFC Model: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`,
+      model: url,
+      script: null, // No script for IFC models - metadata in props
+      props: {
+        fileName: file.name,
+        fileType: 'IFC Model',
+        fileSize: (file.size / 1024).toFixed(2) + ' KB',
+        uploadedAt: new Date().toLocaleString(),
+      },
+      preload: false,
+      public: false,
+      locked: false,
+      unique: false,
+      scene: false,
+      disabled: false,
+    }
+    // register blueprint
+    this.world.blueprints.add(blueprint, true)
+    // spawn the app moving
+    // - mover: follows this clients cursor until placed
+    // - uploader: other clients see a loading indicator until its fully uploaded
+    const data = {
+      id: uuid(),
+      type: 'app',
+      blueprint: blueprint.id,
+      position: transform.position,
+      quaternion: transform.quaternion,
+      scale: [1, 1, 1],
+      mover: this.world.network.id,
+      uploader: this.world.network.id,
+      pinned: false,
+      state: {},
+    }
+    const app = this.world.entities.add(data, true)
+    // start moving it so user can place it
+    this.select(app)
+    // upload the ifc
     await this.world.network.upload(file)
     // mark as uploaded so other clients can load it in
     app.onUploaded()
