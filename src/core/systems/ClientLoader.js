@@ -34,7 +34,7 @@ export class ClientLoader extends System {
     this.texLoader = new TextureLoader()
     this.gltfLoader = new GLTFLoader()
     this.gltfLoader.register(parser => new VRMLoaderPlugin(parser))
-    // Use ThatOpen Components for IFC loading
+    // Use ThatOpen IFC Loader for proper fragment-based loading
     this.thatOpenIFCLoader = new ThatOpenIFCLoader()
     this.preloadItems = []
   }

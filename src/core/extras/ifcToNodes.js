@@ -1,92 +1,87 @@
 import { createNode } from './createNode'
 import * as THREE from './three'
 
-// Material mapping for different IFC types
-// Based on common IFC conventions and real-world materials
-const ifcTypeMaterials = {
-  // Structure - Walls (white/beige)
-  IFCWALL: { color: 0xffffff, roughness: 0.8, metalness: 0.0, transparent: false },
-  IFCWALLSTANDARDCASE: { color: 0xf5f5f0, roughness: 0.8, metalness: 0.0, transparent: false },
-  
-  // Structure - Floors/Slabs (light gray)
-  IFCSLAB: { color: 0xe0e0e0, roughness: 0.7, metalness: 0.0, transparent: false },
-  
-  // Structure - Columns (medium gray)
-  IFCCOLUMN: { color: 0xb0b0b0, roughness: 0.6, metalness: 0.1, transparent: false },
-  
-  // Structure - Beams (brown)
-  IFCBEAM: { color: 0x8b4513, roughness: 0.7, metalness: 0.0, transparent: false },
-  
-  // Structure - Roof (dark red/brown)
-  IFCROOF: { color: 0xa52a2a, roughness: 0.8, metalness: 0.0, transparent: false },
-  
-  // Structure - Stairs (slate gray)
-  IFCSTAIR: { color: 0x708090, roughness: 0.6, metalness: 0.0, transparent: false },
-  IFCRAILING: { color: 0x696969, roughness: 0.5, metalness: 0.2, transparent: false },
-  
-  // Openings - Windows (transparent glass with blue tint)
-  IFCWINDOW: { color: 0x87ceeb, roughness: 0.1, metalness: 0.0, transparent: true, opacity: 0.3 },
-  
-  // Openings - Doors (brown wood)
-  IFCDOOR: { color: 0x8b4513, roughness: 0.7, metalness: 0.0, transparent: false },
-  IFCOPENINGELEMENT: { color: 0xffffff, roughness: 0.6, metalness: 0.0, transparent: false },
-  
-  // MEP - Ducts (blue)
-  IFCDUCTFITTING: { color: 0x4169e1, roughness: 0.4, metalness: 0.3, transparent: false },
-  IFCDUCTSEGMENT: { color: 0x4682b4, roughness: 0.4, metalness: 0.3, transparent: false },
-  
-  // MEP - Pipes (green)
-  IFCPIPEFITTING: { color: 0x32cd32, roughness: 0.4, metalness: 0.3, transparent: false },
-  IFCPIPESEGMENT: { color: 0x228b22, roughness: 0.4, metalness: 0.3, transparent: false },
-  
-  // Furniture & Equipment
-  IFCFURNISHINGELEMENT: { color: 0xff8c00, roughness: 0.6, metalness: 0.0, transparent: false },
-  IFCFURNITURE: { color: 0xffa500, roughness: 0.6, metalness: 0.0, transparent: false },
-  
-  // Spaces (very transparent, just for visualization)
-  IFCSPACE: { color: 0xffffff, roughness: 0.9, metalness: 0.0, transparent: true, opacity: 0.05 },
-  
-  // Default
-  DEFAULT: { color: 0xcccccc, roughness: 0.6, metalness: 0.1, transparent: false },
+// IFC Type Categories for filtering
+export const IFC_CATEGORIES = {
+  WALLS: ['IFCWALL', 'IFCWALLSTANDARDCASE'],
+  FLOORS: ['IFCSLAB', 'IFCFLOOR', 'IFCCOVERING'],
+  DOORS: ['IFCDOOR', 'IFCDOORSTANDARDCASE'],
+  WINDOWS: ['IFCWINDOW', 'IFCWINDOWSTANDARDCASE'],
+  STAIRS: ['IFCSTAIR', 'IFCSTAIRFLIGHT', 'IFCRAILING'],
+  COLUMNS: ['IFCCOLUMN'],
+  BEAMS: ['IFCBEAM'],
+  ROOF: ['IFCROOF'],
+  FURNITURE: ['IFCFURNISHINGELEMENT', 'IFCFURNITURE'],
+  SPACES: ['IFCSPACE'],
 }
 
-// Helper function to get material for IFC type
-// Following the same pattern as glbToNodes - NO setupMaterial here!
-// Stage.createMaterial will handle CSM setup when the mesh mounts
-function getMaterialForIFCType(ifcType, hasVertexColors = false) {
-  if (!ifcType) {
-    return getMaterialForIFCType('DEFAULT', hasVertexColors)
+// Building element types that should have geometry
+const GEOMETRY_TYPES = new Set([
+  'IFCWALL', 'IFCWALLSTANDARDCASE', 'IFCWALLELEMENTEDCASE',
+  'IFCSLAB', 'IFCSLABSTANDARDCASE', 'IFCSLABELEMENTEDCASE',
+  'IFCDOOR', 'IFCDOORSTANDARDCASE',
+  'IFCWINDOW', 'IFCWINDOWSTANDARDCASE',
+  'IFCCOLUMN', 'IFCCOLUMNSTANDARDCASE',
+  'IFCBEAM', 'IFCBEAMSTANDARDCASE',
+  'IFCROOF', 'IFCSTAIR', 'IFCSTAIRFLIGHT', 'IFCRAILING', 'IFCRAMP',
+  'IFCCURTAINWALL', 'IFCPLATE', 'IFCMEMBER',
+  'IFCFOOTING', 'IFCPILE',
+  'IFCCOVERING', 'IFCOPENINGELEMENT',
+  'IFCFURNISHINGELEMENT', 'IFCFURNITURE',
+  'IFCBUILDINGELEMENTPROXY',
+  'IFCFLOWSEGMENT', 'IFCFLOWFITTING', 'IFCFLOWTERMINAL',
+])
+
+// Helper to check if type belongs to a category
+export function isTypeInCategory(ifcType, category) {
+  if (!ifcType || !IFC_CATEGORIES[category]) return false
+  const normalized = String(ifcType).toUpperCase()
+  return IFC_CATEGORIES[category].some(t => normalized === t || normalized.includes(t))
+}
+
+/**
+ * Create default material for IFC type
+ */
+function createDefaultMaterial(ifcType) {
+  const typeColors = {
+    IFCWALL: 0xf5f5f0,
+    IFCWALLSTANDARDCASE: 0xf5f5f0,
+    IFCSLAB: 0xe0e0e0,
+    IFCCOLUMN: 0xb0b0b0,
+    IFCBEAM: 0x8b4513,
+    IFCROOF: 0xa52a2a,
+    IFCSTAIR: 0x708090,
+    IFCRAILING: 0x696969,
+    IFCWINDOW: 0x87ceeb,
+    IFCDOOR: 0x8b4513,
+    IFCFURNISHINGELEMENT: 0xff8c00,
+    IFCFURNITURE: 0xffa500,
+    IFCSPACE: 0xcccccc,
+    IFCCOVERING: 0xdcdcdc,
+    IFCFOOTING: 0x808080,
+    IFCCURTAINWALL: 0x87ceeb,
+    IFCPLATE: 0xc0c0c0,
+    IFCMEMBER: 0xa0a0a0,
+    DEFAULT: 0xcccccc,
   }
   
-  // Normalize type name
-  let normalizedType = String(ifcType).toUpperCase()
+  const normalizedType = String(ifcType || 'DEFAULT').toUpperCase()
+  const color = typeColors[normalizedType] || typeColors.DEFAULT
+  const isTransparent = normalizedType === 'IFCWINDOW' || normalizedType === 'IFCSPACE'
   
-  if (normalizedType.startsWith('IFCTYPE_')) {
-    normalizedType = 'DEFAULT'
-  } else if (!normalizedType.startsWith('IFC')) {
-    normalizedType = 'IFC' + normalizedType
-  }
-  
-  const materialConfig = ifcTypeMaterials[normalizedType] || ifcTypeMaterials.DEFAULT
-  
-  // Create material with proper lighting settings
   const material = new THREE.MeshStandardMaterial({
-    color: materialConfig.color,
-    roughness: materialConfig.roughness,
-    metalness: materialConfig.metalness,
+    color: color,
+    roughness: 0.7,
+    metalness: 0.1,
     side: THREE.DoubleSide,
-    transparent: materialConfig.transparent,
-    opacity: materialConfig.opacity !== undefined ? materialConfig.opacity : 1.0,
-    vertexColors: hasVertexColors,
-    // Ensure environment lighting works
+    transparent: isTransparent,
+    opacity: isTransparent ? 0.3 : 1.0,
     envMapIntensity: 1.0,
-    // Minimal ambient boost to prevent 100% black shadows
-    // This simulates indirect light bouncing in the scene
-    emissive: new THREE.Color(materialConfig.color).multiplyScalar(0.08),
-    emissiveIntensity: 1.0,
+    flatShading: false,
   })
   
-  // Force material update to ensure it picks up scene.environment
+  material.emissive = new THREE.Color(color).multiplyScalar(0.05)
+  material.emissiveIntensity = 1.0
   material.needsUpdate = true
   
   return material
@@ -95,337 +90,349 @@ function getMaterialForIFCType(ifcType, hasVertexColors = false) {
 /**
  * IFC to Nodes Converter
  *
- * Converts IFC models loaded by ThatOpen Components into Hyperfy's node structure
- * Follows the same pattern as glbToNodes for consistency with Hyperfy architecture
+ * Converts IFC model into Hyperfy's node structure with proper hierarchy.
+ * Uses web-ifc to get geometry per building element.
  */
 export function ifcToNodes(ifcModel, world) {
-  let parsedCount = 0
-  let skippedCount = 0
+  const expressIDToType = ifcModel.userData?.ifcExpressIDToType || {}
+  const typeStats = ifcModel.userData?.ifcTypeStats || {}
+  const spatialStructure = ifcModel.userData?.ifcSpatialStructure
+  const webIfc = ifcModel.userData?.webIfc
+  const modelID = ifcModel.userData?.webIfcModelID ?? 0 // web-ifc model ID
   
-  function parse(object3ds, parentNode) {
-    if (!object3ds || object3ds.length === 0) {
-      return
-    }
+  console.log('[IFC→Nodes] Converting...', Object.keys(typeStats).length, 'types')
+  console.log('[IFC→Nodes] Has webIfc:', !!webIfc)
+  console.log('[IFC→Nodes] webIfcModelID:', modelID)
+  console.log('[IFC→Nodes] Has spatial structure:', !!spatialStructure)
+  
+  // Create root node
+  const root = createNode('group', { id: '$root' })
+  if (!root.userData) root.userData = {}
+  root.userData.ifcTypeStats = { ...typeStats }
+  root.userData.ifcExpressIDToType = { ...expressIDToType }
+  
+  let hierarchyNodeCount = 0
+  let meshCount = 0
+  
+  /**
+   * Get geometry for an expressID using web-ifc
+   */
+  function getGeometryForElement(expressID) {
+    if (!webIfc) return null
     
-    for (const object3d of object3ds) {
-      if (!object3d) {
-        skippedCount++
-        continue
+    try {
+      const flatMesh = webIfc.GetFlatMesh(modelID, expressID)
+      if (!flatMesh || !flatMesh.geometries || flatMesh.geometries.size() === 0) {
+        return null
       }
       
-      // --- Handle InstancedMesh (ThatOpen Fragments) ---
-      if (object3d.isInstancedMesh) {
-         const count = object3d.count;
-         if (count > 0) {
-             const geometry = object3d.geometry;
-             // Clone geometry for safety
-             let safeGeometry = geometry;
-             try { safeGeometry = geometry.clone(); } catch(e) {}
-             
-             // Handle IDs access
-             let getID = (index) => null;
-             if (object3d.ids) {
-                if (Array.isArray(object3d.ids) || object3d.ids instanceof Uint32Array) {
-                   getID = (i) => object3d.ids[i];
-                } else if (object3d.ids instanceof Set) {
-                   const idsArray = Array.from(object3d.ids);
-                   getID = (i) => idsArray[i];
-                }
-             }
-             // Fallback to userData expressIDs array if set by ThatOpenIFCLoader
-             if (getID(0) === null && object3d.userData && Array.isArray(object3d.userData.expressIDs)) {
-                getID = (i) => object3d.userData.expressIDs[i];
-             }
-             
-             for (let i = 0; i < count; i++) {
-                 const matrix = new THREE.Matrix4();
-                 object3d.getMatrixAt(i, matrix);
-                 
-                 const position = new THREE.Vector3();
-                 const quaternion = new THREE.Quaternion();
-                 const scale = new THREE.Vector3();
-                 matrix.decompose(position, quaternion, scale);
-                 
-                 const expressID = getID(i);
-                 
-                 // Determine Type & Material for this instance
-                 const expressIDToType = ifcModel.userData?.ifcExpressIDToType || {};
-                 const ifcType = expressID && expressIDToType[expressID] || null;
-                 
-               // Material selection logic
-               let material = object3d.material;
-               
-               // CRITICAL: Hyperfy createNode only accepts single materials, not arrays!
-               // If it's an array, extract the first valid material
-               if (Array.isArray(material)) {
-                  material = material.find(m => m && m.isMaterial) || null;
-               }
-               
-               // Validate material
-               if (material && !material.isMaterial) {
-                  material = null;
-               }
-               
-               // If no valid material, create one based on IFC type
-               if (!material) {
-                  material = getMaterialForIFCType(ifcType || 'DEFAULT', false);
-               } else {
-                  // Clone material and ensure proper lighting settings
-                  try {
-                     material = material.clone();
-                     material.vertexColors = false;
-                     material.side = THREE.DoubleSide;
-                     material.envMapIntensity = 1.0;
-                     // Add minimal ambient to prevent 100% black shadows
-                     if (material.color) {
-                        material.emissive = material.color.clone().multiplyScalar(0.08);
-                        material.emissiveIntensity = 1.0;
-                     }
-                     material.needsUpdate = true;
-                  } catch(e) {
-                     material = getMaterialForIFCType(ifcType || 'DEFAULT', false);
-                  }
-               }
-                 
-                const uniqueSuffix = object3d.uuid.slice(0, 8) + '_' + i;
-                const nodeID = `ifc_${expressID || 'inst'}_${uniqueSuffix}`;
-                
-                // Get props from userData for this instanced mesh
-                const instanceProps = object3d.userData || {};
-                
-                // Transparent materials should NOT cast shadows
-                const isTransparent = material && material.transparent === true;
-                
-                const node = createNode('mesh', {
-                   id: nodeID,
-                   type: 'geometry',
-                   geometry: safeGeometry,
-                   material: material,
-                   linked: false, // IFC geometries don't work well with linked mode
-                   position: position.toArray(),
-                   quaternion: quaternion.toArray(),
-                   scale: scale.toArray(),
-                   castShadow: !isTransparent && (instanceProps.castShadow !== false),
-                   receiveShadow: instanceProps.receiveShadow !== false,
-                   active: instanceProps.active !== false,
-                });
-                 
-                 // Set Metadata
-                 if (!node.userData) node.userData = {};
-                 node.userData.isIFCGeometry = true;
-                 if (expressID) {
-                    node.userData.expressID = expressID;
-                    node.userData.ifcElement = true;
-                 }
-                 if (ifcType) node.userData.ifcType = ifcType;
-                 if (ifcModel.userData?.ifcModelID) {
-                    node.userData.ifcModelID = ifcModel.userData.ifcModelID;
-                 }
-                 
-                 parsedCount++;
-                 parentNode.add(node);
-             }
-         }
-         continue; // Skip standard processing
+      // Combine all geometries for this element
+      const positions = []
+      const normals = []
+      const indices = []
+      let indexOffset = 0
+      
+      for (let i = 0; i < flatMesh.geometries.size(); i++) {
+        const placedGeom = flatMesh.geometries.get(i)
+        const geomData = webIfc.GetGeometry(modelID, placedGeom.geometryExpressID)
+        
+        if (!geomData) continue
+        
+        const verts = webIfc.GetVertexArray(geomData.GetVertexData(), geomData.GetVertexDataSize())
+        const idx = webIfc.GetIndexArray(geomData.GetIndexData(), geomData.GetIndexDataSize())
+        
+        if (!verts || !idx || verts.length === 0) continue
+        
+        // Apply transformation matrix
+        const matrix = new THREE.Matrix4()
+        matrix.fromArray(placedGeom.flatTransformation)
+        
+        // Add vertices (position + normal interleaved, 6 floats per vertex)
+        const vertexCount = verts.length / 6
+        for (let v = 0; v < vertexCount; v++) {
+          const px = verts[v * 6 + 0]
+          const py = verts[v * 6 + 1]
+          const pz = verts[v * 6 + 2]
+          const nx = verts[v * 6 + 3]
+          const ny = verts[v * 6 + 4]
+          const nz = verts[v * 6 + 5]
+          
+          // Transform position
+          const pos = new THREE.Vector3(px, py, pz)
+          pos.applyMatrix4(matrix)
+          positions.push(pos.x, pos.y, pos.z)
+          
+          // Transform normal
+          const normalMatrix = new THREE.Matrix3().getNormalMatrix(matrix)
+          const norm = new THREE.Vector3(nx, ny, nz)
+          norm.applyMatrix3(normalMatrix).normalize()
+          normals.push(norm.x, norm.y, norm.z)
+        }
+        
+        // Add indices with offset
+        for (let j = 0; j < idx.length; j++) {
+          indices.push(idx[j] + indexOffset)
+        }
+        
+        indexOffset += vertexCount
       }
-
-      const props = object3d.userData || {}
-
-      // IFC Mesh - convert to Hyperfy mesh node
-      if (object3d.type === 'Mesh') {
-        const geometry = object3d.geometry
-        if (!geometry || !geometry.attributes || !geometry.attributes.position) {
-          parse(object3d.children, parentNode)
-          return
-        }
-        
-        // Ensure geometry has valid position attribute for raycasting
-        const positionAttr = geometry.attributes.position
-        if (!positionAttr || !positionAttr.array || positionAttr.array.length === 0) {
-          parse(object3d.children, parentNode)
-          return
-        }
-        
-        // Extract expressID
-        let expressID = null
-        if (geometry.attributes.expressID?.array?.[0]) expressID = geometry.attributes.expressID.array[0]
-        else if (geometry.attributes.express_id?.array?.[0]) expressID = geometry.attributes.express_id.array[0]
-        else if (geometry.userData?.expressID) expressID = geometry.userData.expressID
-        else if (object3d.userData?.expressID) expressID = object3d.userData.expressID
-        else if (object3d.name) {
-          const nameMatch = object3d.name.match(/(\d+)/)
-          if (nameMatch) expressID = parseInt(nameMatch[1], 10)
-        }
-
-        // Get IFC type
-        const expressIDToType = ifcModel.userData?.ifcExpressIDToType || {}
-        const ifcType = expressID && expressIDToType[expressID] || 
-                       object3d.userData?.ifcType || 
-                       null
-
-        // Material Strategy:
-        // 1. Prefer existing material (from ThatOpen/Original IFC)
-        // 2. Fallback to Type-based material if no material exists
-        
-        let material = object3d.material
-        
-        // CRITICAL: Hyperfy createNode only accepts single materials, not arrays!
-        if (Array.isArray(material)) {
-           material = material.find(m => m && m.isMaterial) || null;
-        }
-        
-        // Validate material or try userData fallbacks
-        if (!material || !material.isMaterial) {
-           material = object3d.userData?.customMaterial || object3d.userData?.material || null;
-        }
-        
-        // If still no valid material, create from Type
-        if (!material || !material.isMaterial) {
-           material = getMaterialForIFCType(ifcType || 'DEFAULT', false)
-        } else {
-           // Clone material and ensure proper lighting settings
-           try {
-             material = material.clone()
-             material.vertexColors = false
-             material.side = THREE.DoubleSide
-             material.envMapIntensity = 1.0
-             // Add minimal ambient to prevent 100% black shadows
-             if (material.color) {
-                material.emissive = material.color.clone().multiplyScalar(0.08)
-                material.emissiveIntensity = 1.0
-             }
-             material.needsUpdate = true
-           } catch (e) {
-             material = getMaterialForIFCType(ifcType || 'DEFAULT', false)
-           }
-        }
-
-        // Clone geometry for safety
-        let safeGeometry = geometry
-        try {
-          safeGeometry = geometry.clone()
-          if (!safeGeometry.attributes.position?.array) {
-            safeGeometry = geometry
-          }
-        } catch (cloneErr) {
-          safeGeometry = geometry
-        }
-        
-        // Generate unique ID to prevent React key collisions
-        const uniqueSuffix = object3d.uuid.slice(0, 8)
-        const nodeID = object3d.name || (expressID ? `ifc_${expressID}_${uniqueSuffix}` : `ifc_mesh_${uniqueSuffix}`)
-        
-        // Transparent materials should NOT cast shadows (allows light through windows)
-        const isTransparent = material && material.transparent === true
-        
-        const node = createNode('mesh', {
-          id: nodeID,
-          type: 'geometry',
-          geometry: safeGeometry,
-          material: material,
-          linked: false, // IFC geometries don't work well with linked mode
-          castShadow: !isTransparent && (props.castShadow !== false),
-          receiveShadow: props.receiveShadow !== false,
-          active: props.active !== false,
-          position: object3d.position.toArray(),
-          quaternion: object3d.quaternion.toArray(),
-          scale: object3d.scale.toArray(),
-        })
-        
-        // Store IFC metadata
-        if (!node.userData) node.userData = {}
-        node.userData.isIFCGeometry = true
-        if (expressID) {
-          node.userData.expressID = expressID
-          node.userData.ifcElement = true
-        }
-        if (ifcType) {
-          node.userData.ifcType = ifcType
-        }
-        if (ifcModel.userData?.ifcModelID) {
-          node.userData.ifcModelID = ifcModel.userData.ifcModelID
-        }
-
-        parsedCount++
-        parentNode.add(node)
-        
-        if (object3d.children && object3d.children.length > 0) {
-          parse(object3d.children, node)
-        }
-      }
-      // Groups / Object3D
-      else if (object3d.type === 'Group' || object3d.type === 'Object3D') {
-        const expressID = object3d.userData?.expressID || null
-        const expressIDToType = ifcModel.userData?.ifcExpressIDToType || {}
-        const ifcType = expressID && expressIDToType[expressID] || 
-                       object3d.userData?.ifcType || 
-                       null
-
-        const uniqueSuffix = object3d.uuid.slice(0, 8)
-        const nodeID = object3d.name || (expressID ? `ifc_group_${expressID}_${uniqueSuffix}` : `ifc_group_${uniqueSuffix}`)
-
-        const node = createNode('group', {
-          id: nodeID,
-          position: object3d.position.toArray(),
-          quaternion: object3d.quaternion.toArray(),
-          scale: object3d.scale.toArray(),
-        })
-
-        if (!node.userData) node.userData = {}
-        if (expressID) {
-          node.userData.expressID = expressID
-          node.userData.ifcElement = true
-        }
-        if (ifcType) {
-          node.userData.ifcType = ifcType
-        }
-        if (ifcModel.userData?.ifcModelID) {
-          node.userData.ifcModelID = ifcModel.userData.ifcModelID
-        }
-
-        parsedCount++
-        parentNode.add(node)
-        
-        if (object3d.children && object3d.children.length > 0) {
-          parse(object3d.children, node)
-        }
-      } else {
-        skippedCount++
-        if (object3d.children && object3d.children.length > 0) {
-          parse(object3d.children, parentNode)
-        }
-      }
+      
+      if (positions.length === 0) return null
+      
+      // Create Three.js geometry
+      const geometry = new THREE.BufferGeometry()
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+      geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3))
+      geometry.setIndex(indices)
+      
+      return geometry
+      
+    } catch (e) {
+      // Geometry not available for this element
+      return null
     }
   }
-
-  const root = createNode('group', {
-    id: '$root',
-  })
-
-  if (!root.userData) root.userData = {}
   
-  // Copy type stats
-  if (ifcModel.userData?.ifcTypeStats) {
-    root.userData.ifcTypeStats = { ...ifcModel.userData.ifcTypeStats }
+  /**
+   * Get all IFC properties for an element using web-ifc
+   */
+  function getElementProperties(expressID) {
+    if (!webIfc || !expressID) return null
+    
+    try {
+      const line = webIfc.GetLine(modelID, expressID)
+      if (!line) return null
+      
+      const props = {}
+      
+      // Standard IFC attributes
+      if (line.GlobalId?.value) props.globalId = line.GlobalId.value
+      if (line.Name?.value) props.name = line.Name.value
+      if (line.Description?.value) props.description = line.Description.value
+      if (line.ObjectType?.value) props.objectType = line.ObjectType.value
+      if (line.Tag?.value) props.tag = line.Tag.value
+      if (line.PredefinedType?.value) props.predefinedType = line.PredefinedType.value
+      if (line.OverallHeight?.value) props.height = line.OverallHeight.value
+      if (line.OverallWidth?.value) props.width = line.OverallWidth.value
+      if (line.ElevationOfRefHeight?.value) props.elevation = line.ElevationOfRefHeight.value
+      if (line.LongName?.value) props.longName = line.LongName.value
+      
+      return Object.keys(props).length > 0 ? props : null
+    } catch (e) {
+      return null
+    }
   }
   
-  // Copy ID map
-  if (ifcModel.userData?.ifcExpressIDToType) {
-    root.userData.ifcExpressIDToType = { ...ifcModel.userData.ifcExpressIDToType }
+  /**
+   * Get property sets (Psets) for an element
+   */
+  function getPropertySets(expressID) {
+    if (!webIfc || !expressID) return null
+    
+    try {
+      // IFC type code for IFCRELDEFINESBYPROPERTIES
+      const IFCRELDEFINESBYPROPERTIES = 4186316022
+      
+      const psets = {}
+      const rels = webIfc.GetLineIDsWithType(modelID, IFCRELDEFINESBYPROPERTIES)
+      
+      for (let i = 0; i < rels.size(); i++) {
+        const relId = rels.get(i)
+        const rel = webIfc.GetLine(modelID, relId)
+        
+        if (!rel || !rel.RelatedObjects) continue
+        
+        // Check if this relation applies to our element
+        let applies = false
+        for (const obj of rel.RelatedObjects) {
+          if (obj?.value === expressID) {
+            applies = true
+            break
+          }
+        }
+        
+        if (!applies) continue
+        
+        // Get the property set
+        const psetRef = rel.RelatingPropertyDefinition
+        if (!psetRef?.value) continue
+        
+        const pset = webIfc.GetLine(modelID, psetRef.value)
+        if (!pset) continue
+        
+        const psetName = pset.Name?.value || 'Properties'
+        psets[psetName] = {}
+        
+        // Get properties from the pset
+        if (pset.HasProperties) {
+          for (const propRef of pset.HasProperties) {
+            if (!propRef?.value) continue
+            const prop = webIfc.GetLine(modelID, propRef.value)
+            if (!prop || !prop.Name?.value) continue
+            
+            const propName = prop.Name.value
+            let propValue = null
+            
+            // Extract value based on property type
+            if (prop.NominalValue?.value !== undefined) {
+              propValue = prop.NominalValue.value
+            } else if (prop.EnumerationValues) {
+              propValue = prop.EnumerationValues.map(v => v?.value).filter(Boolean).join(', ')
+            }
+            
+            if (propValue !== null) {
+              psets[psetName][propName] = propValue
+            }
+          }
+        }
+        
+        // Get quantities from quantity sets
+        if (pset.Quantities) {
+          for (const qRef of pset.Quantities) {
+            if (!qRef?.value) continue
+            const q = webIfc.GetLine(modelID, qRef.value)
+            if (!q || !q.Name?.value) continue
+            
+            const qName = q.Name.value
+            let qValue = null
+            
+            if (q.LengthValue?.value !== undefined) qValue = `${q.LengthValue.value.toFixed(3)} m`
+            else if (q.AreaValue?.value !== undefined) qValue = `${q.AreaValue.value.toFixed(3)} m²`
+            else if (q.VolumeValue?.value !== undefined) qValue = `${q.VolumeValue.value.toFixed(3)} m³`
+            else if (q.CountValue?.value !== undefined) qValue = q.CountValue.value
+            else if (q.WeightValue?.value !== undefined) qValue = `${q.WeightValue.value.toFixed(2)} kg`
+            
+            if (qValue !== null) {
+              psets[psetName][qName] = qValue
+            }
+          }
+        }
+      }
+      
+      return Object.keys(psets).length > 0 ? psets : null
+    } catch (e) {
+      return null
+    }
   }
   
-  root.userData.ifcModelID = ifcModel.userData?.ifcModelID || ifcModel.modelID || null
-  
-  console.log('[IFC] Root metadata stored')
-
-  // Parse IFC model structure
-  if (ifcModel.children && ifcModel.children.length > 0) {
-    parse(ifcModel.children, root)
-  } else if (ifcModel.type === 'Mesh' || (ifcModel.geometry && ifcModel.isMesh)) {
-    parse([ifcModel], root)
+  /**
+   * Build hierarchy from IFC spatial structure, creating meshes for elements with geometry
+   */
+  function buildHierarchy(ifcNode, parentHyperfyNode, depth = 0) {
+    if (!ifcNode) return
+    
+    const nodeType = (ifcNode.type || ifcNode.Category || 'UNKNOWN').toUpperCase()
+    const nodeId = ifcNode.expressID || ifcNode.ExpressID || ifcNode.id || 0
+    const nodeName = ifcNode.name || ifcNode.Name || ''
+    
+    // Create group node for this IFC element
+    const groupNode = createNode('group', {
+      id: `${nodeType}_${nodeId}`,
+    })
+    
+    if (!groupNode.userData) groupNode.userData = {}
+    groupNode.userData.expressID = nodeId
+    groupNode.userData.ifcType = nodeType
+    groupNode.userData.ifcElement = true
+    if (nodeName) groupNode.userData.ifcName = nodeName
+    
+    // Get additional IFC properties
+    const elementProps = getElementProperties(nodeId)
+    if (elementProps) {
+      groupNode.userData.ifcProperties = elementProps
+    }
+    
+    // Get property sets (only for building elements to avoid performance issues)
+    if (GEOMETRY_TYPES.has(nodeType)) {
+      const psets = getPropertySets(nodeId)
+      if (psets) {
+        groupNode.userData.ifcPropertySets = psets
+      }
+    }
+    
+    hierarchyNodeCount++
+    parentHyperfyNode.add(groupNode)
+    
+    // Check if this is a building element that should have geometry
+    if (GEOMETRY_TYPES.has(nodeType) && nodeId) {
+      const geometry = getGeometryForElement(nodeId)
+      
+      if (geometry) {
+        const material = createDefaultMaterial(nodeType)
+        const isTransparent = material.transparent === true
+        
+        const meshNode = createNode('mesh', {
+          id: `mesh_${nodeId}`,
+          type: 'geometry',
+          geometry: geometry,
+          material: material,
+          linked: false,
+          castShadow: !isTransparent,
+          receiveShadow: true,
+        })
+        
+        if (!meshNode.userData) meshNode.userData = {}
+        meshNode.userData.isIFCGeometry = true
+        meshNode.userData.expressID = nodeId
+        meshNode.userData.ifcType = nodeType
+        
+        // Add mesh as child of the group node
+        groupNode.add(meshNode)
+        meshCount++
+      }
+    }
+    
+    // Process children
+    const children = ifcNode.children || ifcNode.Children || []
+    for (const child of children) {
+      buildHierarchy(child, groupNode, depth + 1)
+    }
   }
   
-  console.log('[IFC] Converted to nodes:', parsedCount, 'items')
+  // Build hierarchy with geometry
+  if (spatialStructure) {
+    console.log('[IFC→Nodes] Building hierarchy with geometry...')
+    buildHierarchy(spatialStructure, root, 0)
+  } else {
+    console.log('[IFC→Nodes] No spatial structure, creating flat mesh list')
+    // Fallback: just process the Three.js meshes
+    let meshIndex = 0
+    function processMesh(obj) {
+      if (!obj.isMesh || !obj.geometry) return
+      const geometry = obj.geometry
+      if (!geometry.attributes?.position?.array?.length) return
+      
+      try {
+        const clonedGeom = geometry.clone()
+        const material = createDefaultMaterial('DEFAULT')
+        
+        const meshNode = createNode('mesh', {
+          id: `mesh_${meshIndex++}`,
+          type: 'geometry',
+          geometry: clonedGeom,
+          material: material,
+          linked: false,
+          castShadow: true,
+          receiveShadow: true,
+          position: obj.position?.toArray() || [0, 0, 0],
+          quaternion: obj.quaternion?.toArray() || [0, 0, 0, 1],
+          scale: obj.scale?.toArray() || [1, 1, 1],
+        })
+        
+        root.add(meshNode)
+        meshCount++
+      } catch (e) {}
+    }
+    
+    function traverse(obj) {
+      if (obj.isMesh) processMesh(obj)
+      if (obj.children) obj.children.forEach(traverse)
+    }
+    
+    if (ifcModel.children) ifcModel.children.forEach(traverse)
+  }
+  
+  console.log(`[IFC→Nodes] Done: ${hierarchyNodeCount} hierarchy + ${meshCount} mesh nodes`)
 
   return root
 }

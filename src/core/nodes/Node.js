@@ -470,6 +470,12 @@ export class Node {
         set active(value) {
           self.active = value
         },
+        get userData() {
+          return self.userData
+        },
+        set userData(value) {
+          self.userData = value
+        },
         get parent() {
           return self.parent?.getProxy()
         },

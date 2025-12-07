@@ -20,6 +20,7 @@ export class ThatOpenIFCLoader {
     // Get required managers from components
     this.ifcLoader = this.components.get(OBC.IfcLoader)
     this.fragmentsManager = this.components.get(OBC.FragmentsManager)
+    this.hider = this.components.get(OBC.Hider)
     
     // Initialize FragmentsManager with worker
     const workerUrl = '/worker.mjs'
@@ -105,24 +106,38 @@ export class ThatOpenIFCLoader {
       // CRITICAL: Pass webIfcModelID (number) for querying web-ifc, as fragmentsModel.modelId is likely a UUID string
       await this.processModelMetadata(fragmentsModel, webIfcModelID)
 
+      // Build spatial structure from web-ifc
+      let spatialStructure = null
+      try {
+        spatialStructure = await this.buildSpatialStructure(webIfcModelID)
+      } catch (spatialErr) {
+        console.warn('[ThatOpen IFC] Could not build spatial structure:', spatialErr.message)
+      }
+
       // Convert to Three.js Group
       const group = new THREE.Group()
       group.modelID = fragmentsModel.modelId
       
       if (fragmentsModel.object) {
         group.add(fragmentsModel.object)
-            } else {
+      } else {
         throw new Error('No Three.js object found in FragmentsModel')
       }
 
-      // Store useful data in userData
+      // Store useful data in userData - including ThatOpen APIs for visibility control
       group.userData = {
         ifcModelID: fragmentsModel.modelId,
+        webIfcModelID: webIfcModelID, // The numeric model ID for web-ifc queries
         fragmentsModel: fragmentsModel,
         thatOpenComponents: this.components,
+        thatOpenHider: this.hider,
+        thatOpenFragments: this.fragmentsManager,
+        webIfc: this.ifcLoader.webIfc, // Direct reference to web-ifc API
         // Transfer processed metadata
         ifcTypeStats: fragmentsModel.userData.ifcTypeStats,
         ifcExpressIDToType: fragmentsModel.userData.ifcExpressIDToType,
+        // Add spatial structure for hierarchy
+        ifcSpatialStructure: spatialStructure,
       }
       
       return group
@@ -254,44 +269,57 @@ export class ThatOpenIFCLoader {
 
     // --- AGGRESSIVE ID EXTRACTION (Restored from legacy logic) ---
     
-    // 4. Use model.data (The Gold Standard for ThatOpen)
-    // Maps ExpressID -> [FragmentUUID, ItemIndex][]
-    if (model.data) {
-       const dataMap = model.data instanceof Map ? model.data : new Map(Object.entries(model.data).map(([k,v]) => [Number(k), v]));
-       console.log('[ThatOpen IFC] Using model.data to resolve IDs, entries:', dataMap.size);
-       
+    // Debug model structure (minimal logging)
+    
+    // Try to get fragment data from various sources
+    let fragmentDataMap = null
+    const dataManager = model._dataManager
+    
+    // Source 1: model.data (legacy)
+    if (model.data && (model.data instanceof Map ? model.data.size > 0 : Object.keys(model.data).length > 0)) {
+       fragmentDataMap = model.data instanceof Map ? model.data : new Map(Object.entries(model.data).map(([k,v]) => [Number(k), v]))
+       console.log('[ThatOpen IFC] Using model.data, entries:', fragmentDataMap.size)
+    }
+    // Source 2: _dataManager._data
+    else if (dataManager && dataManager._data) {
+       fragmentDataMap = dataManager._data instanceof Map ? dataManager._data : new Map(Object.entries(dataManager._data).map(([k,v]) => [Number(k), v]))
+       console.log('[ThatOpen IFC] Using _dataManager._data, entries:', fragmentDataMap.size)
+    }
+    // Source 3: _dataManager.data
+    else if (dataManager && dataManager.data) {
+       fragmentDataMap = dataManager.data instanceof Map ? dataManager.data : new Map(Object.entries(dataManager.data).map(([k,v]) => [Number(k), v]))
+       console.log('[ThatOpen IFC] Using _dataManager.data, entries:', fragmentDataMap.size)
+    }
+    
+    if (fragmentDataMap && fragmentDataMap.size > 0) {
        // Build FragmentUUID -> ExpressIDs map
-       const fragMap = new Map();
+       const fragMap = new Map()
        
-       dataMap.forEach((locations, expressID) => {
-          // Collect all valid Express IDs for type resolution
-          expressIDs.add(expressID);
+       fragmentDataMap.forEach((locations, expressID) => {
+          expressIDs.add(expressID)
           
           if (Array.isArray(locations)) {
              for (const loc of locations) {
-                // loc is [fragmentUUID, itemIndex]
                 if (Array.isArray(loc) && loc.length >= 1) {
-                   const fragUUID = loc[0];
-                   if (!fragMap.has(fragUUID)) fragMap.set(fragUUID, []);
-                   fragMap.get(fragUUID).push(expressID);
+                   const fragUUID = loc[0]
+                   if (!fragMap.has(fragUUID)) fragMap.set(fragUUID, [])
+                   fragMap.get(fragUUID).push(expressID)
                 }
              }
           }
-       });
+       })
        
        // Assign mapped IDs to fragments (meshes)
        if (model.object) {
           model.object.traverse(child => {
              if (child.isMesh && child.uuid && fragMap.has(child.uuid)) {
-                const ids = fragMap.get(child.uuid);
+                const ids = fragMap.get(child.uuid)
                 if (ids.length > 0) {
-                   // Use first ID as primary
-                   child.userData.expressID = ids[0];
-                   // Store all for InstancedMesh handling
-                   child.userData.expressIDs = ids;
+                   child.userData.expressID = ids[0]
+                   child.userData.expressIDs = ids
                 }
              }
-          });
+          })
        }
     }
 
@@ -386,9 +414,8 @@ export class ThatOpenIFCLoader {
     
     // --- END AGGRESSIVE EXTRACTION ---
 
-    // Resolve Types for collected IDs
-    console.log(`[ThatOpen IFC] Resolving types for ${expressIDs.size} IDs using ModelID: ${queryModelID}`)
-    let debugCount = 0;
+    // Resolve Types for collected IDs (from geometry)
+    console.log(`[ThatOpen IFC] Resolving types for ${expressIDs.size} geometry IDs using ModelID: ${queryModelID}`)
     
     for (const id of expressIDs) {
        try {
@@ -402,10 +429,188 @@ export class ThatOpenIFCLoader {
        }
     }
 
+    // Get ALL IFC entity types from the model using GetIfcEntityList
+    // This is the proper way to discover all types in the file
+    try {
+      const webIfc = this.ifcLoader.webIfc
+      if (webIfc && queryModelID !== undefined) {
+        console.log('[ThatOpen IFC] Querying all IFC entity types from web-ifc...')
+        
+        // Get list of all entity type codes in this model
+        let entityTypes = []
+        if (webIfc.GetIfcEntityList) {
+          entityTypes = await webIfc.GetIfcEntityList(queryModelID)
+          console.log(`[ThatOpen IFC] Model contains ${entityTypes.length} different entity types`)
+        }
+        
+        // Filter to only include building element types (not geometry primitives)
+        // IFC Building Element type codes (approximate ranges)
+        const buildingElementTypes = new Set([
+          // Walls
+          'IFCWALL', 'IFCWALLSTANDARDCASE', 'IFCWALLTYPE', 'IFCWALLELEMENTEDCASE',
+          // Slabs/Floors
+          'IFCSLAB', 'IFCSLABSTANDARDCASE', 'IFCSLABTYPE', 'IFCSLABELEMENTEDCASE',
+          // Doors
+          'IFCDOOR', 'IFCDOORSTANDARDCASE', 'IFCDOORTYPE',
+          // Windows  
+          'IFCWINDOW', 'IFCWINDOWSTANDARDCASE', 'IFCWINDOWTYPE',
+          // Columns
+          'IFCCOLUMN', 'IFCCOLUMNSTANDARDCASE', 'IFCCOLUMNTYPE',
+          // Beams
+          'IFCBEAM', 'IFCBEAMSTANDARDCASE', 'IFCBEAMTYPE',
+          // Other building elements
+          'IFCROOF', 'IFCSTAIR', 'IFCSTAIRFLIGHT', 'IFCRAILING', 'IFCRAMP', 'IFCRAMPFLIGHT',
+          'IFCCURTAINWALL', 'IFCPLATE', 'IFCMEMBER',
+          'IFCFOOTING', 'IFCPILE', 'IFCFOUNDATION',
+          'IFCCOVERING', 'IFCOPENINGELEMENT',
+          // MEP
+          'IFCDUCTFITTING', 'IFCDUCTSEGMENT', 'IFCPIPEFITTING', 'IFCPIPESEGMENT',
+          'IFCFLOWSEGMENT', 'IFCFLOWFITTING', 'IFCFLOWTERMINAL',
+          // Furniture
+          'IFCFURNISHINGELEMENT', 'IFCFURNITURE', 'IFCFURNITURETYPE',
+          // Spatial
+          'IFCSPACE', 'IFCBUILDING', 'IFCBUILDINGSTOREY', 'IFCSITE', 'IFCPROJECT',
+          // Generic
+          'IFCBUILDINGELEMENTPROXY', 'IFCBUILDINGELEMENT',
+        ])
+        
+        for (const typeCode of entityTypes) {
+          try {
+            // Get type name from code
+            let typeName = null
+            if (webIfc.GetNameFromTypeCode) {
+              typeName = webIfc.GetNameFromTypeCode(typeCode)
+            }
+            
+            if (!typeName) continue
+            
+            // Only process building elements, skip geometry primitives
+            const normalizedName = typeName.toUpperCase()
+            if (!buildingElementTypes.has(normalizedName)) {
+              // Skip non-building elements like IFCCARTESIANPOINT, IFCDIRECTION, etc.
+              continue
+            }
+            
+            const elements = webIfc.GetLineIDsWithType(queryModelID, typeCode)
+            if (elements && typeof elements.size === 'function') {
+              const count = elements.size()
+              if (count > 0) {
+                typeStats[normalizedName] = (typeStats[normalizedName] || 0) + count
+                // Add all IDs to the map
+                for (let i = 0; i < count; i++) {
+                  const id = elements.get(i)
+                  if (id) {
+                    expressIDToType[id] = normalizedName
+                    expressIDs.add(id)
+                  }
+                }
+                // Element types collected silently
+              }
+            }
+          } catch (typeErr) {
+            // Type query error - continue
+          }
+        }
+      }
+    } catch (allTypesErr) {
+      console.warn('[ThatOpen IFC] Could not query all IFC types:', allTypesErr)
+    }
+
     model.userData.ifcExpressIDToType = expressIDToType
     model.userData.ifcTypeStats = typeStats
     
-    console.log(`[ThatOpen IFC] Processed metadata: ${expressIDs.size} elements, ${Object.keys(typeStats).length} types`)
+    console.log(`[ThatOpen IFC] Processed: ${Object.keys(typeStats).length} types, ${expressIDs.size} elements`)
+    
+    // Try to get categories from _dataManager for better mesh type assignment
+    let meshCategories = null
+    try {
+      if (model._dataManager && typeof model._dataManager.getCategories === 'function') {
+        meshCategories = await model._dataManager.getCategories()
+        console.log('[ThatOpen IFC] Got categories from _dataManager')
+      }
+    } catch (e) {
+      // Categories not available
+    }
+    
+    // Assign types to meshes - try multiple strategies
+    if (model.object) {
+      let assignedCount = 0
+      model.object.traverse(child => {
+        if (!child.isMesh) return
+        
+        // Strategy 1: Check expressID mapping
+        if (child.userData?.expressID) {
+          const id = child.userData.expressID
+          if (expressIDToType[id]) {
+            child.userData.ifcType = expressIDToType[id]
+            assignedCount++
+            return
+          }
+        }
+        
+        // Strategy 2: Check expressIDs array
+        if (child.userData?.expressIDs) {
+          for (const id of child.userData.expressIDs) {
+            if (expressIDToType[id]) {
+              child.userData.ifcType = expressIDToType[id]
+              child.userData.expressID = id
+              assignedCount++
+              return
+            }
+          }
+        }
+        
+        // Strategy 3: Try to infer from mesh name or material
+        if (child.name) {
+          const nameParts = child.name.toUpperCase().split(/[_\-\s]/)
+          for (const part of nameParts) {
+            if (part.startsWith('IFC') && typeStats[part]) {
+              child.userData.ifcType = part
+              assignedCount++
+              return
+            }
+          }
+        }
+        
+        // Strategy 4: Check material name
+        if (child.material?.name) {
+          const matName = child.material.name.toUpperCase()
+          for (const typeName of Object.keys(typeStats)) {
+            if (matName.includes(typeName.replace('IFC', ''))) {
+              child.userData.ifcType = typeName
+              assignedCount++
+              return
+            }
+          }
+        }
+      })
+      
+      if (assignedCount > 0) {
+        console.log(`[ThatOpen IFC] Assigned types to ${assignedCount} meshes`)
+      }
+    }
+  }
+  
+  logHierarchy(obj, depth, expressIDToType, maxDepth = 3) {
+    if (depth > maxDepth) return
+    const indent = '  '.repeat(depth)
+    const name = obj.name || obj.uuid?.slice(0, 8) || 'unnamed'
+    const type = obj.type || 'unknown'
+    const expressID = obj.userData?.expressID || '-'
+    // Look up type from map if not already assigned
+    let ifcType = obj.userData?.ifcType || '-'
+    if (ifcType === '-' && expressID !== '-' && expressIDToType && expressIDToType[expressID]) {
+      ifcType = `(${expressIDToType[expressID]})`
+    }
+    console.log(`${indent}${type}: ${name} [ExpressID: ${expressID}, Type: ${ifcType}]`)
+    if (obj.children) {
+      for (const child of obj.children.slice(0, 10)) {
+        this.logHierarchy(child, depth + 1, expressIDToType, maxDepth)
+      }
+      if (obj.children.length > 10) {
+        console.log(`${indent}  ... and ${obj.children.length - 10} more children`)
+      }
+    }
   }
 
   extractExpressID(mesh) {
@@ -449,5 +654,168 @@ export class ThatOpenIFCLoader {
       return null
     }
     return null
+  }
+
+  logSpatialStructure(node, depth, maxDepth = 4) {
+    if (!node || depth > maxDepth) return
+    const indent = '  '.repeat(depth)
+    const type = node.type || node.Category || 'UNKNOWN'
+    const id = node.expressID || node.ExpressID || node.id || '-'
+    const name = node.name || node.Name || ''
+    console.log(`${indent}${type} #${id} ${name}`)
+    
+    const children = node.children || node.Children || []
+    for (const child of children.slice(0, 10)) {
+      this.logSpatialStructure(child, depth + 1, maxDepth)
+    }
+    if (children.length > 10) {
+      console.log(`${indent}  ... and ${children.length - 10} more`)
+    }
+  }
+
+  /**
+   * Build spatial structure directly from web-ifc
+   * This is more reliable than ThatOpen's _dataManager.getSpatialStructure()
+   */
+  async buildSpatialStructure(modelID) {
+    const webIfc = this.ifcLoader.webIfc
+    if (!webIfc) return null
+
+    // IFC type codes for spatial elements
+    const IFCPROJECT = 103090709
+    const IFCSITE = 4097777520
+    const IFCBUILDING = 4031249490
+    const IFCBUILDINGSTOREY = 3124254112
+    const IFCSPACE = 3856911033
+    const IFCRELAGGREGATES = 160246688
+    const IFCRELCONTAINEDINSPATIALSTRUCTURE = 3242617779
+
+    try {
+      // Get the project (root of spatial structure)
+      const projectIds = webIfc.GetLineIDsWithType(modelID, IFCPROJECT)
+      if (!projectIds || projectIds.size() === 0) {
+        console.warn('[ThatOpen IFC] No IFCPROJECT found')
+        return null
+      }
+
+      const projectId = projectIds.get(0)
+      const projectLine = await webIfc.GetLine(modelID, projectId)
+      
+      const buildNode = async (expressID, typeName) => {
+        const node = {
+          expressID: expressID,
+          type: typeName,
+          name: '',
+          children: []
+        }
+
+        // Try to get name
+        try {
+          const line = await webIfc.GetLine(modelID, expressID)
+          if (line && line.Name && line.Name.value) {
+            node.name = line.Name.value
+          }
+        } catch (e) {}
+
+        // Find children via IFCRELAGGREGATES
+        try {
+          const allAggregates = webIfc.GetLineIDsWithType(modelID, IFCRELAGGREGATES)
+          for (let i = 0; i < allAggregates.size(); i++) {
+            const relId = allAggregates.get(i)
+            const rel = await webIfc.GetLine(modelID, relId)
+            
+            if (rel && rel.RelatingObject && rel.RelatingObject.value === expressID) {
+              // This relation connects our element to children
+              if (rel.RelatedObjects) {
+                for (const child of rel.RelatedObjects) {
+                  if (child && child.value) {
+                    const childId = child.value
+                    const childType = await this.getIfcTypeName(modelID, childId)
+                    if (childType) {
+                      const childNode = await buildNode(childId, childType)
+                      node.children.push(childNode)
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } catch (e) {
+          // console.warn('[ThatOpen IFC] Error getting aggregates:', e)
+        }
+
+        // Find contained elements via IFCRELCONTAINEDINSPATIALSTRUCTURE
+        try {
+          const allContained = webIfc.GetLineIDsWithType(modelID, IFCRELCONTAINEDINSPATIALSTRUCTURE)
+          for (let i = 0; i < allContained.size(); i++) {
+            const relId = allContained.get(i)
+            const rel = await webIfc.GetLine(modelID, relId)
+            
+            if (rel && rel.RelatingStructure && rel.RelatingStructure.value === expressID) {
+              // This relation connects our spatial element to contained elements
+              if (rel.RelatedElements) {
+                for (const element of rel.RelatedElements) {
+                  if (element && element.value) {
+                    const elemId = element.value
+                    const elemType = await this.getIfcTypeName(modelID, elemId)
+                    if (elemType) {
+                      // Only include building elements, not geometry
+                      if (this.isBuildingElement(elemType)) {
+                        node.children.push({
+                          expressID: elemId,
+                          type: elemType,
+                          name: '',
+                          children: []
+                        })
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } catch (e) {
+          // console.warn('[ThatOpen IFC] Error getting contained elements:', e)
+        }
+
+        return node
+      }
+
+      const root = await buildNode(projectId, 'IFCPROJECT')
+      return root
+
+    } catch (err) {
+      console.error('[ThatOpen IFC] Error building spatial structure:', err)
+      return null
+    }
+  }
+
+  isBuildingElement(typeName) {
+    const buildingElements = [
+      'IFCWALL', 'IFCWALLSTANDARDCASE', 'IFCWALLELEMENTEDCASE',
+      'IFCSLAB', 'IFCSLABSTANDARDCASE', 'IFCSLABELEMENTEDCASE',
+      'IFCDOOR', 'IFCDOORSTANDARDCASE',
+      'IFCWINDOW', 'IFCWINDOWSTANDARDCASE',
+      'IFCCOLUMN', 'IFCCOLUMNSTANDARDCASE',
+      'IFCBEAM', 'IFCBEAMSTANDARDCASE',
+      'IFCROOF', 'IFCSTAIR', 'IFCSTAIRFLIGHT', 'IFCRAILING', 'IFCRAMP',
+      'IFCCURTAINWALL', 'IFCPLATE', 'IFCMEMBER',
+      'IFCFOOTING', 'IFCPILE',
+      'IFCCOVERING', 'IFCOPENINGELEMENT',
+      'IFCFURNISHINGELEMENT', 'IFCFURNITURE',
+      'IFCSPACE', 'IFCBUILDING', 'IFCBUILDINGSTOREY', 'IFCSITE',
+      'IFCBUILDINGELEMENTPROXY',
+      'IFCFLOWSEGMENT', 'IFCFLOWFITTING', 'IFCFLOWTERMINAL',
+    ]
+    return buildingElements.includes(typeName?.toUpperCase())
+  }
+
+  countNodes(node) {
+    if (!node) return 0
+    let count = 1
+    for (const child of (node.children || [])) {
+      count += this.countNodes(child)
+    }
+    return count
   }
 }

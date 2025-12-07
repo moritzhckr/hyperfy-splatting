@@ -2,11 +2,14 @@ import { css } from '@firebolt-dev/css'
 import {
   BlendIcon,
   BoxIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
   CircleIcon,
   DumbbellIcon,
   EyeIcon,
   EyeOffIcon,
   FolderIcon,
+  FolderOpenIcon,
   LayersIcon,
   MagnetIcon,
   PersonStandingIcon,
@@ -17,6 +20,8 @@ import { cls } from './cls'
 export function NodeHierarchy({ app }) {
   const [selectedNode, setSelectedNode] = useState(null)
   const [visibilityState, setVisibilityState] = useState(new Map())
+  const [expandedState, setExpandedState] = useState(new Map())
+  
   const rootNode = useMemo(() => {
     // Try to get the actual rendered root node first (app.root)
     // This is the node that's actually in the scene and can be toggled
@@ -28,6 +33,21 @@ export function NodeHierarchy({ app }) {
     console.log('[NodeHierarchy] Using getNodes() fallback:', nodes)
     return nodes
   }, [app])
+
+  // Initialize expanded state for root and first level children
+  useEffect(() => {
+    if (rootNode) {
+      const initial = new Map()
+      initial.set(rootNode.id, true) // Root always expanded
+      // Expand first level children by default
+      if (rootNode.children) {
+        rootNode.children.forEach(child => {
+          initial.set(child.id, true)
+        })
+      }
+      setExpandedState(initial)
+    }
+  }, [rootNode])
 
   useEffect(() => {
     if (rootNode && !selectedNode) {
@@ -48,6 +68,15 @@ export function NodeHierarchy({ app }) {
     } catch (err) {
       return false
     }
+  }
+
+  // Toggle expand/collapse of a node
+  const toggleExpanded = (node, event) => {
+    event.stopPropagation()
+    const newState = new Map(expandedState)
+    const isExpanded = newState.get(node.id) ?? false
+    newState.set(node.id, !isExpanded)
+    setExpandedState(newState)
   }
 
   // Toggle visibility of a node
@@ -112,14 +141,7 @@ export function NodeHierarchy({ app }) {
       traverse(node.children)
     }
 
-    console.log('[NodeHierarchy] Toggled visibility for', node.id, 'to', newVisible, {
-      hasCtx: !!node.ctx,
-      hasWorld: !!node.ctx?.world,
-      hasActive: typeof node.active !== 'undefined',
-      mounted: node.mounted,
-      hasVisible: typeof node.visible !== 'undefined',
-      hasObj: !!node.obj,
-    })
+    console.log('[NodeHierarchy] Toggled visibility for', node.id, 'to', newVisible)
   }
 
   return (
@@ -152,9 +174,11 @@ export function NodeHierarchy({ app }) {
             background: rgba(0, 167, 255, 0.1);
           }
           svg {
+            flex-shrink: 0;
+          }
+          .node-icon {
             margin-right: 0.5rem;
             opacity: 0.5;
-            flex-shrink: 0;
           }
           span {
             white-space: nowrap;
@@ -162,15 +186,31 @@ export function NodeHierarchy({ app }) {
             text-overflow: ellipsis;
             flex: 1;
           }
-          &-indent {
-            margin-left: 1.25rem;
+          &-expand {
+            width: 18px;
+            height: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 0.25rem;
+            border-radius: 0.25rem;
+            opacity: 0.5;
+            &:hover {
+              background: rgba(255, 255, 255, 0.1);
+              opacity: 1;
+            }
+            &.no-children {
+              visibility: hidden;
+            }
           }
           &-visibility {
             margin-left: 0.5rem;
             padding: 0.125rem;
             border-radius: 0.25rem;
+            opacity: 0.5;
             &:hover {
               background: rgba(255, 255, 255, 0.1);
+              opacity: 1;
             }
           }
         }
@@ -186,20 +226,38 @@ export function NodeHierarchy({ app }) {
           max-height: 40vh;
           overflow-y: auto;
         }
+        .nodehierarchy-section-header {
+          font-size: 0.75rem;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          color: rgba(255, 255, 255, 0.4);
+          margin-top: 0.75rem;
+          margin-bottom: 0.5rem;
+          padding-bottom: 0.25rem;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+          &:first-child {
+            margin-top: 0;
+          }
+        }
         .nodehierarchy-detail {
           display: flex;
-          margin-bottom: 0.5rem;
-          font-size: 0.9375rem;
+          margin-bottom: 0.375rem;
+          font-size: 0.875rem;
           &-label {
-            width: 6.25rem;
+            width: 5.5rem;
             color: rgba(255, 255, 255, 0.5);
             flex-shrink: 0;
+            font-size: 0.8125rem;
           }
           &-value {
             flex: 1;
             word-break: break-word;
             &.copy {
               cursor: pointer;
+              &:hover {
+                color: #00a7ff;
+              }
             }
           }
         }
@@ -207,7 +265,7 @@ export function NodeHierarchy({ app }) {
     >
       <div className='nodehierarchy-tree'>
         {rootNode ? (
-          renderHierarchy([rootNode], 0, selectedNode, setSelectedNode, visibilityState, toggleVisibility)
+          renderHierarchy([rootNode], 0, selectedNode, setSelectedNode, visibilityState, toggleVisibility, expandedState, toggleExpanded)
         ) : (
           <div className='nodehierarchy-empty'>
             <LayersIcon size={24} />
@@ -224,34 +282,91 @@ export function NodeHierarchy({ app }) {
           {/* IFC Metadata */}
           {selectedNode.userData?.ifcElement && (
             <>
-              {selectedNode.userData.expressID && (
-                <HierarchyDetail label='IFC ExpressID' value={String(selectedNode.userData.expressID)} copy />
-              )}
+              <HierarchySectionHeader title='IFC Element' />
               {selectedNode.userData.ifcType && (
-                <HierarchyDetail label='IFC Type' value={selectedNode.userData.ifcType} />
+                <HierarchyDetail label='Type' value={selectedNode.userData.ifcType} />
+              )}
+              {selectedNode.userData.expressID && (
+                <HierarchyDetail label='Express ID' value={String(selectedNode.userData.expressID)} copy />
+              )}
+              {selectedNode.userData.ifcName && (
+                <HierarchyDetail label='Name' value={selectedNode.userData.ifcName} />
+              )}
+              
+              {/* IFC Properties */}
+              {selectedNode.userData.ifcProperties && (
+                <>
+                  {selectedNode.userData.ifcProperties.globalId && (
+                    <HierarchyDetail label='Global ID' value={selectedNode.userData.ifcProperties.globalId} copy />
+                  )}
+                  {selectedNode.userData.ifcProperties.description && (
+                    <HierarchyDetail label='Description' value={selectedNode.userData.ifcProperties.description} />
+                  )}
+                  {selectedNode.userData.ifcProperties.objectType && (
+                    <HierarchyDetail label='Object Type' value={selectedNode.userData.ifcProperties.objectType} />
+                  )}
+                  {selectedNode.userData.ifcProperties.predefinedType && (
+                    <HierarchyDetail label='Predefined' value={selectedNode.userData.ifcProperties.predefinedType} />
+                  )}
+                  {selectedNode.userData.ifcProperties.tag && (
+                    <HierarchyDetail label='Tag' value={selectedNode.userData.ifcProperties.tag} />
+                  )}
+                  {selectedNode.userData.ifcProperties.longName && (
+                    <HierarchyDetail label='Long Name' value={selectedNode.userData.ifcProperties.longName} />
+                  )}
+                  {selectedNode.userData.ifcProperties.height && (
+                    <HierarchyDetail label='Height' value={`${selectedNode.userData.ifcProperties.height.toFixed(3)} m`} />
+                  )}
+                  {selectedNode.userData.ifcProperties.width && (
+                    <HierarchyDetail label='Width' value={`${selectedNode.userData.ifcProperties.width.toFixed(3)} m`} />
+                  )}
+                  {selectedNode.userData.ifcProperties.elevation && (
+                    <HierarchyDetail label='Elevation' value={`${selectedNode.userData.ifcProperties.elevation.toFixed(3)} m`} />
+                  )}
+                </>
+              )}
+              
+              {/* IFC Property Sets */}
+              {selectedNode.userData.ifcPropertySets && Object.keys(selectedNode.userData.ifcPropertySets).length > 0 && (
+                <>
+                  {Object.entries(selectedNode.userData.ifcPropertySets).map(([psetName, props]) => (
+                    <div key={psetName}>
+                      <HierarchySectionHeader title={psetName} />
+                      {Object.entries(props).map(([propName, propValue]) => (
+                        <HierarchyDetail 
+                          key={propName} 
+                          label={propName} 
+                          value={typeof propValue === 'number' ? propValue.toFixed(3) : String(propValue)} 
+                        />
+                      ))}
+                    </div>
+                  ))}
+                </>
               )}
             </>
           )}
 
-          {/* Position */}
-          {hasProperty(selectedNode, 'position') && getVectorString(selectedNode.position) && (
-            <HierarchyDetail label='Position' value={getVectorString(selectedNode.position)} />
-          )}
-
-          {/* Rotation */}
-          {hasProperty(selectedNode, 'rotation') && getVectorString(selectedNode.rotation) && (
-            <HierarchyDetail label='Rotation' value={getVectorString(selectedNode.rotation)} />
-          )}
-
-          {/* Scale */}
-          {hasProperty(selectedNode, 'scale') && getVectorString(selectedNode.scale) && (
-            <HierarchyDetail label='Scale' value={getVectorString(selectedNode.scale)} />
+          {/* Transform */}
+          {(hasProperty(selectedNode, 'position') || hasProperty(selectedNode, 'rotation') || hasProperty(selectedNode, 'scale')) && (
+            <>
+              <HierarchySectionHeader title='Transform' />
+              {hasProperty(selectedNode, 'position') && getVectorString(selectedNode.position) && (
+                <HierarchyDetail label='Position' value={getVectorString(selectedNode.position)} />
+              )}
+              {hasProperty(selectedNode, 'rotation') && getVectorString(selectedNode.rotation) && (
+                <HierarchyDetail label='Rotation' value={getVectorString(selectedNode.rotation)} />
+              )}
+              {hasProperty(selectedNode, 'scale') && getVectorString(selectedNode.scale) && (
+                <HierarchyDetail label='Scale' value={getVectorString(selectedNode.scale)} />
+              )}
+            </>
           )}
 
           {/* Material */}
           {hasProperty(selectedNode, 'material') && selectedNode.material && (
             <>
-              <HierarchyDetail label='Material' value={selectedNode.material.type || 'Standard'} />
+              <HierarchySectionHeader title='Material' />
+              <HierarchyDetail label='Type' value={selectedNode.material.type || 'Standard'} />
               {hasProperty(selectedNode.material, 'color') && selectedNode.material.color && (
                 <HierarchyDetail
                   label='Color'
@@ -267,10 +382,21 @@ export function NodeHierarchy({ app }) {
 
           {/* Geometry */}
           {hasProperty(selectedNode, 'geometry') && selectedNode.geometry && (
-            <HierarchyDetail label='Geometry' value={selectedNode.geometry.type || 'Custom'} />
+            <>
+              <HierarchySectionHeader title='Geometry' />
+              <HierarchyDetail label='Type' value={selectedNode.geometry.type || 'Custom'} />
+            </>
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+function HierarchySectionHeader({ title }) {
+  return (
+    <div className='nodehierarchy-section-header'>
+      {title}
     </div>
   )
 }
@@ -290,6 +416,7 @@ function HierarchyDetail({ label, value, copy }) {
 const nodeIcons = {
   default: CircleIcon,
   group: FolderIcon,
+  groupOpen: FolderOpenIcon,
   mesh: BoxIcon,
   rigidbody: DumbbellIcon,
   collider: BlendIcon,
@@ -298,7 +425,7 @@ const nodeIcons = {
   snap: MagnetIcon,
 }
 
-function renderHierarchy(nodes, depth = 0, selectedNode, setSelectedNode, visibilityState, toggleVisibility) {
+function renderHierarchy(nodes, depth = 0, selectedNode, setSelectedNode, visibilityState, toggleVisibility, expandedState, toggleExpanded) {
   if (!Array.isArray(nodes)) return null
 
   return nodes.map(node => {
@@ -309,25 +436,56 @@ function renderHierarchy(nodes, depth = 0, selectedNode, setSelectedNode, visibi
     const hasChildren = Array.isArray(children) && children.length > 0
     const isSelected = selectedNode?.id === node.id
     const isVisible = visibilityState.get(node.id) ?? true
-    const Icon = nodeIcons[node.name] || nodeIcons.default
+    const isExpanded = expandedState.get(node.id) ?? false
+    
+    // Choose icon based on node type and expanded state
+    let Icon
+    if (node.name === 'group') {
+      Icon = isExpanded ? nodeIcons.groupOpen : nodeIcons.group
+    } else {
+      Icon = nodeIcons[node.name] || nodeIcons.default
+    }
+
+    // Get display name
+    let displayName = node.id === '$root' ? 'app' : node.id
+    // For IFC elements, show type + name if available
+    if (node.userData?.ifcType && node.userData?.ifcName) {
+      displayName = `${node.userData.ifcType}: ${node.userData.ifcName}`
+    } else if (node.userData?.ifcType) {
+      displayName = `${node.userData.ifcType} #${node.userData.expressID || ''}`
+    }
 
     return (
       <div key={node.id}>
         <div
           className={cls('nodehierarchy-item', {
-            'nodehierarchy-item-indent': depth > 0,
             selected: isSelected,
           })}
-          style={{ marginLeft: depth * 20 }}
+          style={{ marginLeft: depth * 16 }}
           onClick={() => setSelectedNode(node)}
         >
-          <Icon size={14} />
-          <span>{node.id === '$root' ? 'app' : node.id}</span>
+          {/* Expand/Collapse Toggle */}
+          <div 
+            className={cls('nodehierarchy-item-expand', { 'no-children': !hasChildren })}
+            onClick={e => hasChildren && toggleExpanded(node, e)}
+          >
+            {hasChildren && (isExpanded ? <ChevronDownIcon size={14} /> : <ChevronRightIcon size={14} />)}
+          </div>
+          
+          {/* Node Icon */}
+          <Icon size={14} className='node-icon' />
+          
+          {/* Node Name */}
+          <span title={displayName}>{displayName}</span>
+          
+          {/* Visibility Toggle */}
           <div className='nodehierarchy-item-visibility' onClick={e => toggleVisibility(node, e)}>
             {isVisible ? <EyeIcon size={14} /> : <EyeOffIcon size={14} />}
           </div>
         </div>
-        {hasChildren && renderHierarchy(children, depth + 1, selectedNode, setSelectedNode, visibilityState, toggleVisibility)}
+        
+        {/* Render children only if expanded */}
+        {hasChildren && isExpanded && renderHierarchy(children, depth + 1, selectedNode, setSelectedNode, visibilityState, toggleVisibility, expandedState, toggleExpanded)}
       </div>
     )
   })
