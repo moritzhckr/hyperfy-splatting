@@ -66,6 +66,10 @@ const clientHtmlDest = path.join(rootDir, 'build/public/index.html')
               const dest = path.join(rootDir, 'build/public', wasmFile)
               await fs.copy(src, dest)
             }
+            // copy ThatOpen fragments worker to public
+            const workerSrc = path.join(rootDir, 'node_modules/@thatopen/fragments/dist/Worker/worker.mjs')
+            const workerDest = path.join(rootDir, 'build/public/worker.mjs')
+            await fs.copy(workerSrc, workerDest)
             // find js output files
             const metafile = result.metafile
             const outputFiles = Object.keys(metafile.outputs)

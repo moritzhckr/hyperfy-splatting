@@ -49,6 +49,7 @@ export function MenuApp({ world, app, blur }) {
   if (page === 'index') Page = MenuAppIndex
   if (page === 'flags') Page = MenuAppFlags
   if (page === 'metadata') Page = MenuAppMetadata
+  if (page === 'ifc-filters') Page = MenuAppIFCFilters
   return (
     <Menu title={blueprint.name} blur={blur}>
       <Page world={world} app={app} blueprint={blueprint} pop={pop} push={push} />
@@ -94,6 +95,11 @@ function MenuAppIndex({ world, app, blueprint, pop, push }) {
       console.error(err)
     }
   }
+  // Check if this is an IFC model
+  const isIFC = blueprint.model?.endsWith('.ifc') || blueprint.model?.includes('.ifc')
+  const rootNode = isIFC ? app.getNodes() : null
+  const hasIFCData = rootNode?.userData?.ifcTypeStats && Object.keys(rootNode.userData.ifcTypeStats).length > 0
+
   return (
     <>
       <MenuItemFields world={world} app={app} blueprint={blueprint} />
@@ -110,6 +116,9 @@ function MenuAppIndex({ world, app, blueprint, pop, push }) {
       {!frozen && <MenuItemBtn label='Code' hint='View or edit the code for this app' onClick={world.ui.toggleCode} />}
       {!frozen && <MenuItemBtn label='Flags' hint='View/edit flags for this app' onClick={() => push('flags')} nav />}
       <MenuItemBtn label='Metadata' hint='View/edit metadata for this app' onClick={() => push('metadata')} nav />
+      {isIFC && hasIFCData && (
+        <MenuItemBtn label='IFC Filters' hint='Show/hide IFC elements by type' onClick={() => push('ifc-filters')} nav />
+      )}
       <MenuItemBtn label='Download' hint='Download this app as a .hyp file' onClick={download} />
       <MenuItemBtn
         label='Delete'
@@ -346,6 +355,109 @@ function MenuAppMetadata({ world, app, blueprint, pop, push }) {
         value={blueprint.desc}
         onChange={value => set('desc', value)}
       />
+    </>
+  )
+}
+
+function MenuAppIFCFilters({ world, app, blueprint, pop, push }) {
+  const rootNode = app.getNodes()
+  const ifcTypeStats = rootNode?.userData?.ifcTypeStats || {}
+  const ifcExpressIDToType = rootNode?.userData?.ifcExpressIDToType || new Map()
+
+  // State to track visibility per type
+  const [typeVisibility, setTypeVisibility] = useState(() => {
+    const initial = {}
+    Object.keys(ifcTypeStats).forEach(type => {
+      initial[type] = true
+    })
+    return initial
+  })
+
+  // Helper function to traverse nodes safely
+  const traverseNodes = (callback) => {
+    if (!rootNode) return
+    const traverse = (node) => {
+      callback(node)
+      if (node.children && Array.isArray(node.children)) {
+        node.children.forEach(child => traverse(child))
+      }
+    }
+    traverse(rootNode)
+  }
+
+  // Toggle visibility for a specific IFC type
+  const toggleType = (typeName) => {
+    const newVisibility = !typeVisibility[typeName]
+    setTypeVisibility(prev => ({ ...prev, [typeName]: newVisibility }))
+
+    // Find all nodes with this type and toggle visibility
+    traverseNodes(node => {
+      if (node.userData?.ifcType === typeName) {
+        // Use active property for Hyperfy nodes, visible for Three.js objects
+        if ('active' in node) {
+          node.active = newVisibility
+        } else if ('visible' in node) {
+          node.visible = newVisibility
+        }
+      }
+    })
+
+    console.log('[IFC Filters] Toggled', typeName, 'to', newVisibility)
+  }
+
+  // Show/Hide all
+  const toggleAll = (visible) => {
+    const newVisibility = {}
+    Object.keys(ifcTypeStats).forEach(type => {
+      newVisibility[type] = visible
+    })
+    setTypeVisibility(newVisibility)
+
+    // Update all nodes
+    traverseNodes(node => {
+      if (node.userData?.ifcType) {
+        if ('active' in node) {
+          node.active = visible
+        } else if ('visible' in node) {
+          node.visible = visible
+        }
+      }
+    })
+
+    console.log('[IFC Filters] Set all types to', visible)
+  }
+
+  // Format type name for display (remove IFC prefix)
+  const formatTypeName = (typeName) => {
+    return typeName.replace(/^IFC/, '')
+  }
+
+  return (
+    <>
+      <MenuItemBack hint='Go back to the main app details' onClick={pop} />
+      <MenuSection>IFC Element Types</MenuSection>
+      <div
+        css={css`
+          display: flex;
+          gap: 0.5rem;
+          padding: 0 1rem;
+          margin-bottom: 0.5rem;
+        `}
+      >
+        <MenuItemBtn label='Show All' onClick={() => toggleAll(true)} />
+        <MenuItemBtn label='Hide All' onClick={() => toggleAll(false)} />
+      </div>
+      {Object.entries(ifcTypeStats)
+        .sort((a, b) => b[1] - a[1]) // Sort by count descending
+        .map(([typeName, count]) => (
+          <MenuItemToggle
+            key={typeName}
+            label={`${formatTypeName(typeName)} (${count})`}
+            hint={`Show/hide ${count} ${formatTypeName(typeName).toLowerCase()} elements`}
+            value={typeVisibility[typeName] ?? true}
+            onChange={() => toggleType(typeName)}
+          />
+        ))}
     </>
   )
 }

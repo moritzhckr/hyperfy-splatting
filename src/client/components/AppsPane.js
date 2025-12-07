@@ -116,7 +116,10 @@ function AppsPaneContent({ world, query, refresh, setRefresh }) {
       let item = itemMap.get(blueprint.id)
       if (!item) {
         let count = 0
-        const type = blueprint.model.endsWith('.vrm') ? 'avatar' : 'model'
+        // Determine correct loader type for the model
+        let type = 'model'
+        if (blueprint.model.endsWith('.vrm')) type = 'avatar'
+        else if (blueprint.model.endsWith('.ifc')) type = 'ifc'
         const model = world.loader.get(type, blueprint.model)
         if (!model) continue
         const stats = model.getStats()

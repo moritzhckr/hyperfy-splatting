@@ -297,6 +297,41 @@ export class Node {
     this._onPointerUp = source._onPointerUp
     this._cursor = source._cursor
     this._active = source._active
+    // Copy userData if it exists (important for IFC metadata and other custom data)
+    // CRITICAL: Ensure userData is always copied, even if source.userData is empty
+    if (source.userData) {
+      this.userData = {}
+      for (const key in source.userData) {
+        const value = source.userData[key]
+        // Handle Map objects specially (used for IFC expressID to type mapping)
+        if (value instanceof Map) {
+          this.userData[key] = new Map(value)
+        } else {
+          // Deep clone other values
+          try {
+            // Use structuredClone if available (better for complex objects)
+            if (typeof structuredClone !== 'undefined') {
+              this.userData[key] = structuredClone(value)
+            } else {
+              this.userData[key] = JSON.parse(JSON.stringify(value))
+            }
+          } catch (e) {
+            // If JSON serialization fails, try to copy the reference
+            // For IFC metadata, we want to preserve the structure
+            if (typeof value === 'object' && value !== null) {
+              // Try shallow copy for objects
+              this.userData[key] = { ...value }
+            } else {
+              this.userData[key] = value
+            }
+          }
+        }
+      }
+    } else if (source.userData === null || source.userData === undefined) {
+      // Explicitly initialize userData if source doesn't have it
+      // This ensures userData exists even if source didn't have it
+      this.userData = {}
+    }
     if (recursive) {
       for (let i = 0; i < source.children.length; i++) {
         const child = source.children[i]
