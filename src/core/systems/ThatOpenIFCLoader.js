@@ -161,16 +161,16 @@ export class ThatOpenIFCLoader {
       }
 
       // Timeout after 5 minutes
-      const timeout = setTimeout(() => {
+          const timeout = setTimeout(() => {
         cleanup()
         reject(new Error('Fragment load timeout'))
       }, 300000)
 
       const isGeometryReady = (model) => {
         return model.object && (
-          model.object.children?.length > 0 || 
-          model.tiles?.size > 0
-        )
+                model.object.children?.length > 0 || 
+                model.tiles?.size > 0
+              )
       }
 
       const finish = (model) => {
@@ -206,7 +206,7 @@ export class ThatOpenIFCLoader {
           if (checks % 10 === 0) {
              console.log('[ThatOpen IFC] Polling status #' + checks + ':', {
                 id: model.modelId,
-                hasObject: !!model.object,
+                  hasObject: !!model.object,
                 children: model.object?.children?.length,
                 tiles: model.tiles?.size,
                 itemsSize: model.items?.length || model.items?.size,
@@ -227,11 +227,11 @@ export class ThatOpenIFCLoader {
           } else {
              console.log('[ThatOpen IFC] Fragment found but geometry not ready yet, starting poll...')
              startPolling(model)
+              }
+            }
           }
-        }
-      }
-
-      // Check existing fragments first
+          
+          // Check existing fragments first
       const existing = Array.from(this.fragmentsManager.list.values())
       const found = existing.find(f => f.modelId === modelID || f.modelId === filename)
       
@@ -393,11 +393,11 @@ export class ThatOpenIFCLoader {
              fragment.items.forEach(item => {
                if (typeof item === 'number') expressIDs.add(item)
                else if (item && item.id) expressIDs.add(item.id)
-             })
-           }
-        }
-    }
-
+                  })
+                }
+              }
+            }
+            
     // 3. Extract IDs from Geometry/UserData (Standard way)
     if (model.object) {
       model.object.traverse(child => {
@@ -640,13 +640,13 @@ export class ThatOpenIFCLoader {
     if (mesh.userData?.expressID) return mesh.userData.expressID
     if (mesh.geometry.userData?.expressID) return mesh.geometry.userData.expressID
     
-    return null
-  }
-
+        return null
+      }
+      
   async getIfcTypeName(modelID, expressID) {
-    try {
+      try {
       const line = await this.ifcLoader.webIfc.GetLine(modelID, expressID)
-      if (line) {
+        if (line) {
         if (typeof line.type === 'string') return line.type.toUpperCase()
         if (line.constructor?.name) return line.constructor.name.toUpperCase()
       }
@@ -672,7 +672,7 @@ export class ThatOpenIFCLoader {
       console.log(`${indent}  ... and ${children.length - 10} more`)
     }
   }
-
+  
   /**
    * Build spatial structure directly from web-ifc
    * This is more reliable than ThatOpen's _dataManager.getSpatialStructure()
@@ -697,7 +697,7 @@ export class ThatOpenIFCLoader {
         console.warn('[ThatOpen IFC] No IFCPROJECT found')
         return null
       }
-
+      
       const projectId = projectIds.get(0)
       const projectLine = await webIfc.GetLine(modelID, projectId)
       

@@ -88,6 +88,98 @@ function createDefaultMaterial(ifcType) {
 }
 
 /**
+ * Add collision geometry to IFC building elements (walls, floors, stairs, etc.)
+ *
+ * Traverses the IFC node hierarchy and adds RigidBody + Collider nodes
+ * to all building elements for physics interaction.
+ */
+function addCollisionsToElements(root) {
+  // Collect all building element nodes (walls, floors/slabs, stairs)
+  const elementNodes = []
+  root.traverse(node => {
+    if (node.userData?.ifcType) {
+      const ifcType = node.userData.ifcType
+      if (isTypeInCategory(ifcType, 'WALLS') ||
+          isTypeInCategory(ifcType, 'FLOORS') ||
+          isTypeInCategory(ifcType, 'STAIRS')) {
+        elementNodes.push(node)
+      }
+    }
+  })
+
+  if (elementNodes.length === 0) {
+    console.log('[IFC→Collisions] No walls, floors or stairs found')
+    return
+  }
+
+  console.log(`[IFC→Collisions] Adding collisions to ${elementNodes.length} elements...`)
+
+  let colliderCount = 0
+  let bodyCount = 0
+  let wallCount = 0
+  let floorCount = 0
+  let stairCount = 0
+
+  // Process each element node - create a separate rigidbody for each element
+  for (const elementNode of elementNodes) {
+    const elementColliders = []
+    const ifcType = elementNode.userData.ifcType
+
+    // Track element type for logging
+    if (isTypeInCategory(ifcType, 'WALLS')) {
+      wallCount++
+    } else if (isTypeInCategory(ifcType, 'FLOORS')) {
+      floorCount++
+    } else if (isTypeInCategory(ifcType, 'STAIRS')) {
+      stairCount++
+    }
+
+    // Find mesh children with geometry
+    elementNode.traverse(child => {
+      if (child.name === 'mesh' && child.geometry) {
+        try {
+          const collider = createNode('collider', {
+            type: 'geometry',
+            geometry: child.geometry,
+            convex: false, // Use trimesh for accurate collisions
+            layer: 'environment',
+          })
+
+          // Copy local transformation from mesh to collider
+          // The mesh's position is already relative to its parent (elementNode)
+          collider.position.copy(child.position)
+          collider.quaternion.copy(child.quaternion)
+          collider.scale.copy(child.scale)
+
+          elementColliders.push(collider)
+          colliderCount++
+        } catch (err) {
+          console.warn('[IFC→Collisions] Failed to create collider for element mesh:', err)
+        }
+      }
+    })
+
+    // Only create rigidbody if we have colliders for this element
+    if (elementColliders.length > 0) {
+      const body = createNode('rigidbody', {
+        type: 'static',
+      })
+
+      // Add all colliders to this element's rigidbody
+      for (const collider of elementColliders) {
+        body.add(collider)
+      }
+
+      // Add rigidbody to element node
+      elementNode.add(body)
+      bodyCount++
+    }
+  }
+
+  console.log(`[IFC→Collisions] Created ${bodyCount} rigidbodies with ${colliderCount} colliders (${wallCount} walls, ${floorCount} floors, ${stairCount} stairs)`)
+}
+
+/**
  * IFC to Nodes Converter
  *
  * Converts IFC model into Hyperfy's node structure with proper hierarchy.
@@ -433,6 +525,9 @@ export function ifcToNodes(ifcModel, world) {
   }
   
   console.log(`[IFC→Nodes] Done: ${hierarchyNodeCount} hierarchy + ${meshCount} mesh nodes`)
+
+  // Add collision geometry to walls and floors
+  addCollisionsToElements(root)
 
   return root
 }
