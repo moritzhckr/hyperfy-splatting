@@ -190,6 +190,7 @@ export function ifcToNodes(ifcModel, world) {
   const typeStats = ifcModel.userData?.ifcTypeStats || {}
   const spatialStructure = ifcModel.userData?.ifcSpatialStructure
   const webIfc = ifcModel.userData?.webIfc
+  const webIfcModelID = ifcModel.userData?.webIfcModelID
   const modelID = ifcModel.userData?.webIfcModelID ?? 0 // web-ifc model ID
   
   console.log('[IFC→Nodes] Converting...', Object.keys(typeStats).length, 'types')
@@ -526,8 +527,585 @@ export function ifcToNodes(ifcModel, world) {
   
   console.log(`[IFC→Nodes] Done: ${hierarchyNodeCount} hierarchy + ${meshCount} mesh nodes`)
 
+  // Store webIfc reference and original Three.js model in root for later use
+  if (!root.userData) root.userData = {}
+  root.userData.webIfc = webIfc
+  root.userData.webIfcModelID = webIfcModelID
+  root.userData.originalIfcModel = ifcModel // Store original Three.js model with fragments
+
+  console.log('[IFC→Nodes] Stored originalIfcModel:', {
+    hasIfcModel: !!ifcModel,
+    hasObject: !!(ifcModel && ifcModel.object),
+    ifcModelKeys: ifcModel ? Object.keys(ifcModel).filter(k => !k.startsWith('_')) : [],
+    ifcModelType: ifcModel ? ifcModel.constructor.name : 'undefined'
+  })
+
   // Add collision geometry to walls and floors
   addCollisionsToElements(root)
 
+  // Add interactive actions to doors
+  addInteractiveDoors(root)
+
   return root
+}
+
+/**
+ * Add interactive actions to IFC doors
+ *
+ * Makes doors openable by adding Action nodes
+ */
+function addInteractiveDoors(root) {
+  const doorNodes = []
+
+  // Find all door nodes
+  root.traverse(node => {
+    if (node.userData?.ifcType) {
+      const ifcType = node.userData.ifcType.toUpperCase()
+      if (ifcType === 'IFCDOOR' || ifcType === 'IFCDOORSTANDARDCASE') {
+        doorNodes.push(node)
+      }
+    }
+  })
+
+  if (doorNodes.length === 0) {
+    console.log('[IFC→Doors] No doors found')
+    return
+  }
+
+  console.log(`[IFC→Doors] Adding interaction to ${doorNodes.length} doors...`)
+
+  // Get original IFC model from root
+  const originalIfcModel = root.userData?.originalIfcModel
+
+  console.log('[IFC→Doors] Retrieved originalIfcModel:', {
+    hasOriginalIfcModel: !!originalIfcModel,
+    hasChildren: !!(originalIfcModel && originalIfcModel.children),
+    rootUserDataKeys: root.userData ? Object.keys(root.userData) : [],
+    originalIfcModelType: originalIfcModel ? originalIfcModel.constructor.name : 'undefined'
+  })
+
+  if (!originalIfcModel) {
+    console.warn('[IFC→Doors] Original IFC model not available, cannot get door positions')
+    return
+  }
+
+  let actionCount = 0
+
+  // Create actions group at root level
+  const doorActionsGroup = createNode('group', {
+    id: 'ifc_door_actions'
+  })
+  root.add(doorActionsGroup)
+
+  for (let i = 0; i < doorNodes.length; i++) {
+    const doorNode = doorNodes[i]
+
+    try {
+      // Store door metadata for the action handler
+      doorNode.userData.doorState = {
+        isOpen: false,
+        originalRotation: doorNode.rotation.y,
+        openAngle: 90 * (Math.PI / 180), // 90 degrees in radians
+        direction: getDoorDirection(doorNode),
+        doorNode: doorNode // Store reference for animation
+      }
+
+      // Get world position by finding meshes with this expressID in originalIfcModel.object
+      const worldPos = findDoorMeshPosition(doorNode.userData.expressID, originalIfcModel)
+
+      if (!worldPos) {
+        console.warn(`[IFC→Doors] Door ${i} (${doorNode.userData.expressID}) - no valid position found, skipping`)
+        continue
+      }
+
+      console.log(`[IFC→Doors] Door ${i} (${doorNode.userData.expressID}) position:`, worldPos)
+
+      // Create a separate group for this door's action at root level
+      const actionGroup = createNode('group', {
+        id: `door_action_group_${i}`,
+        position: [worldPos.x, worldPos.y + 1.0, worldPos.z] // +1m for handle height
+      })
+
+      // Create action node
+      const action = createNode('action', {
+        id: `door_action_${i}`,
+        label: 'Open Door',
+        distance: 2.5,
+        duration: 0.1,
+        position: [0, 0, 0], // Relative to action group
+        onTrigger: createDoorToggleHandler(doorNode)
+      })
+
+      actionGroup.add(action)
+      doorActionsGroup.add(actionGroup)
+
+      // Store reference so we can update label
+      doorNode.userData.doorState.actionNode = action
+
+      actionCount++
+    } catch (err) {
+      console.warn('[IFC→Doors] Failed to create action for door:', err)
+    }
+  }
+
+  console.log(`[IFC→Doors] Created ${actionCount} interactive doors with actions as children`)
+  console.log('[IFC→Doors] NOTE: Actions inherit door node transforms, so they will move with the hierarchy')
+}
+
+/**
+ * Get world position of a door from IFC data using web-ifc
+ */
+function getDoorPositionFromIFC(doorNode, webIfc, modelID) {
+  try {
+    const expressID = doorNode.userData.expressID
+    if (!expressID || !webIfc || modelID === undefined) {
+      console.warn('[IFC→Doors] Missing data to query door position:', { expressID, hasWebIfc: !!webIfc, modelID })
+      return { x: 0, y: 0, z: 0 }
+    }
+
+    // Get the door element from web-ifc
+    const doorElement = webIfc.GetLine(modelID, expressID)
+    if (!doorElement) {
+      console.warn('[IFC→Doors] Could not get door element:', expressID)
+      return { x: 0, y: 0, z: 0 }
+    }
+
+    // Get ObjectPlacement
+    const placementRef = doorElement.ObjectPlacement
+    if (!placementRef || !placementRef.value) {
+      return { x: 0, y: 0, z: 0 }
+    }
+
+    // Get the placement data
+    const placement = webIfc.GetLine(modelID, placementRef.value)
+    if (!placement) {
+      return { x: 0, y: 0, z: 0 }
+    }
+
+    // For IfcLocalPlacement, we need to traverse up the placement hierarchy
+    let matrix = getPlacementMatrix(placement, webIfc, modelID)
+
+    // Extract position from the matrix (last column)
+    return {
+      x: matrix[12] || 0,
+      y: matrix[13] || 0,
+      z: matrix[14] || 0
+    }
+  } catch (err) {
+    console.warn('[IFC→Doors] Error getting door position from IFC:', err)
+    return { x: 0, y: 0, z: 0 }
+  }
+}
+
+/**
+ * Get placement matrix from IfcLocalPlacement recursively
+ */
+function getPlacementMatrix(placement, webIfc, modelID) {
+  // Identity matrix
+  let matrix = [
+    1, 0, 0, 0,
+    0, 1, 0, 0,
+    0, 0, 1, 0,
+    0, 0, 0, 1
+  ]
+
+  try {
+    // Check if this is IfcLocalPlacement
+    if (placement.constructor.name !== 'IfcLocalPlacement') {
+      return matrix
+    }
+
+    // Get the relative placement
+    const relPlacementRef = placement.RelativePlacement
+    if (relPlacementRef && relPlacementRef.value) {
+      const relPlacement = webIfc.GetLine(modelID, relPlacementRef.value)
+
+      if (relPlacement && relPlacement.Location) {
+        const location = relPlacement.Location
+        if (location.Coordinates) {
+          const coords = location.Coordinates
+          matrix[12] = coords[0]?.value || 0
+          matrix[13] = coords[1]?.value || 0
+          matrix[14] = coords[2]?.value || 0
+        }
+      }
+    }
+
+    // Recursively get parent placement
+    const placementRelToRef = placement.PlacementRelTo
+    if (placementRelToRef && placementRelToRef.value) {
+      const parentPlacement = webIfc.GetLine(modelID, placementRelToRef.value)
+      if (parentPlacement) {
+        const parentMatrix = getPlacementMatrix(parentPlacement, webIfc, modelID)
+        // Multiply matrices (simplified - just add translations for now)
+        matrix[12] += parentMatrix[12]
+        matrix[13] += parentMatrix[13]
+        matrix[14] += parentMatrix[14]
+      }
+    }
+  } catch (err) {
+    console.warn('[IFC→Doors] Error processing placement matrix:', err)
+  }
+
+  return matrix
+}
+
+/**
+ * Find the world position of a door by searching for meshes containing its expressID
+ */
+function findDoorMeshPosition(expressID, originalIfcModel) {
+  if (!expressID || !originalIfcModel) {
+    return null
+  }
+
+  let minX = Infinity, maxX = -Infinity
+  let minY = Infinity, maxY = -Infinity
+  let minZ = Infinity, maxZ = -Infinity
+  let foundAny = false
+  let totalMeshes = 0
+  let meshesWithExpressIDs = 0
+
+  // Search through all meshes in the Three.js Group tree
+  // originalIfcModel is a Three.js Group, meshes are direct children
+  originalIfcModel.traverse(mesh => {
+    if (!mesh.isMesh || !mesh.geometry) return
+
+    totalMeshes++
+
+    // Debug first mesh to see structure
+    if (totalMeshes === 1) {
+      console.log('[IFC→Doors] First mesh userData:', {
+        hasUserData: !!mesh.userData,
+        userDataKeys: mesh.userData ? Object.keys(mesh.userData) : [],
+        expressID: mesh.userData?.expressID,
+        expressIDs: mesh.userData?.expressIDs,
+        hasExpressIDs: !!(mesh.userData?.expressIDs),
+        isArray: Array.isArray(mesh.userData?.expressIDs)
+      })
+    }
+
+    // Check if this mesh contains our expressID
+    // Support both expressIDs (array) and expressID (single value)
+    const meshExpressIDs = mesh.userData?.expressIDs
+    const meshExpressID = mesh.userData?.expressID
+
+    let matchesExpressID = false
+
+    if (meshExpressIDs && Array.isArray(meshExpressIDs)) {
+      meshesWithExpressIDs++
+      matchesExpressID = meshExpressIDs.includes(expressID)
+    } else if (meshExpressID !== undefined) {
+      meshesWithExpressIDs++
+      matchesExpressID = (meshExpressID === expressID)
+    }
+
+    if (!matchesExpressID) return
+
+    // This mesh contains geometry for our door!
+    foundAny = true
+
+    const geometry = mesh.geometry
+    const posAttr = geometry.attributes?.position
+    if (!posAttr || !posAttr.array) return
+
+    const vertices = posAttr.array
+    const tempVec = new THREE.Vector3()
+
+    // Ensure world matrix is up to date
+    mesh.updateMatrixWorld(true)
+
+    // Process all vertices in world space
+    for (let i = 0; i < vertices.length; i += 3) {
+      tempVec.set(vertices[i], vertices[i + 1], vertices[i + 2])
+      tempVec.applyMatrix4(mesh.matrixWorld)
+
+      minX = Math.min(minX, tempVec.x)
+      maxX = Math.max(maxX, tempVec.x)
+      minY = Math.min(minY, tempVec.y)
+      maxY = Math.max(maxY, tempVec.y)
+      minZ = Math.min(minZ, tempVec.z)
+      maxZ = Math.max(maxZ, tempVec.z)
+    }
+  })
+
+  console.log(`[IFC→Doors] Search for expressID ${expressID}: found ${totalMeshes} total meshes, ${meshesWithExpressIDs} with expressIDs, foundAny=${foundAny}`)
+
+  if (foundAny && isFinite(minX)) {
+    return {
+      x: (minX + maxX) / 2,
+      y: (minY + maxY) / 2,
+      z: (minZ + maxZ) / 2
+    }
+  }
+
+  return null
+}
+
+/**
+ * OLD: Get door position from its geometry using ThatOpen FragmentsModel
+ */
+function getDoorPositionFromGeometry_OLD(doorNode, fragmentsModel) {
+  const expressID = doorNode.userData.expressID
+  if (!expressID || !fragmentsModel) {
+    return null
+  }
+
+  try {
+    // Get the geometry for this specific door using ThatOpen's fragment system
+    // This is the same method used in buildHierarchy
+    const geometry = fragmentsModel.getFragmentMap([expressID])
+
+    if (!geometry || !geometry.length) {
+      console.warn(`[IFC→Doors] No geometry fragments found for door ${expressID}`)
+      return null
+    }
+
+    console.log(`[IFC→Doors] Found ${geometry.length} geometry fragments for door ${expressID}`)
+
+    let minX = Infinity, maxX = -Infinity
+    let minY = Infinity, maxY = -Infinity
+    let minZ = Infinity, maxZ = -Infinity
+    let hasVertices = false
+
+    // Process each geometry fragment
+    for (const geomData of geometry) {
+      if (!geomData || !geomData.position) continue
+
+      const posAttr = geomData.position
+      if (posAttr.array && posAttr.array.length > 0) {
+        hasVertices = true
+        const vertices = posAttr.array
+
+        // Get transform if available
+        const transform = geomData.transform || new THREE.Matrix4()
+
+        const tempVec = new THREE.Vector3()
+
+        // Process vertices
+        for (let i = 0; i < vertices.length; i += 3) {
+          tempVec.set(vertices[i], vertices[i + 1], vertices[i + 2])
+          tempVec.applyMatrix4(transform)
+
+          minX = Math.min(minX, tempVec.x)
+          maxX = Math.max(maxX, tempVec.x)
+          minY = Math.min(minY, tempVec.y)
+          maxY = Math.max(maxY, tempVec.y)
+          minZ = Math.min(minZ, tempVec.z)
+          maxZ = Math.max(maxZ, tempVec.z)
+        }
+      }
+    }
+
+    if (hasVertices && isFinite(minX)) {
+      return {
+        x: (minX + maxX) / 2,
+        y: (minY + maxY) / 2,
+        z: (minZ + maxZ) / 2
+      }
+    }
+
+    return null
+  } catch (err) {
+    console.warn(`[IFC→Doors] Error getting geometry for door ${expressID}:`, err)
+    return null
+  }
+}
+
+/**
+ * OLD: Get door position from ThatOpen fragment meshes (NOT WORKING - kept for reference)
+ */
+function getDoorPositionFromFragments_OLD(doorNode, originalIfcModel) {
+  const expressID = doorNode.userData.expressID
+  if (!expressID || !originalIfcModel) {
+    console.warn('[IFC→Doors] Missing expressID or model for door position')
+    return { x: 0, y: 0, z: 0 }
+  }
+
+  console.log(`[IFC→Doors] Analyzing door ${expressID}...`)
+
+  let minX = Infinity, maxX = -Infinity
+  let minY = Infinity, maxY = -Infinity
+  let minZ = Infinity, maxZ = -Infinity
+  let foundMeshes = false
+  let meshCount = 0
+  let checkedMeshes = 0
+
+  // Debug: log the structure of the model
+  let totalMeshes = 0
+  originalIfcModel.traverse(obj => {
+    if (obj.isMesh) {
+      totalMeshes++
+      checkedMeshes++
+
+      // Debug what data is available on meshes
+      if (checkedMeshes === 1) {
+        console.log('[IFC→Doors] First mesh structure:', {
+          hasFragment: !!obj.fragment,
+          hasUserData: !!obj.userData,
+          userDataKeys: obj.userData ? Object.keys(obj.userData) : [],
+          userDataValues: obj.userData ? {
+            expressID: obj.userData.expressID,
+            expressIDs: obj.userData.expressIDs,
+            ifcType: obj.userData.ifcType,
+            ifcModelID: obj.userData.ifcModelID
+          } : {},
+          fragmentKeys: obj.fragment ? Object.keys(obj.fragment) : [],
+          hasGeometry: !!obj.geometry
+        })
+      }
+
+      // Log ALL userData for first few meshes to see the structure
+      if (checkedMeshes <= 3) {
+        console.log(`[IFC→Doors] Mesh ${checkedMeshes} userData:`, obj.userData)
+      }
+
+      // Check multiple ways to find expressID association
+      let belongsToDoor = false
+
+      // Method 1: Check obj.fragment.ids (ThatOpen Fragments)
+      if (obj.fragment && obj.fragment.ids) {
+        if (obj.fragment.ids.includes(expressID)) {
+          belongsToDoor = true
+          console.log(`[IFC→Doors] Found via fragment.ids`)
+        }
+      }
+
+      // Method 2: Check obj.userData.expressID
+      if (obj.userData && obj.userData.expressID === expressID) {
+        belongsToDoor = true
+        console.log(`[IFC→Doors] Found via userData.expressID`)
+      }
+
+      // Method 3: Check obj.userData.expressIDs array
+      if (obj.userData && obj.userData.expressIDs) {
+        if (obj.userData.expressIDs.includes(expressID)) {
+          belongsToDoor = true
+          console.log(`[IFC→Doors] Found via userData.expressIDs`)
+        }
+      }
+
+      if (belongsToDoor) {
+        foundMeshes = true
+        meshCount++
+
+        // Get geometry
+        const geometry = obj.geometry
+        const posAttr = geometry.attributes?.position
+
+        if (posAttr && posAttr.array) {
+          const vertices = posAttr.array
+          const tempVec = new THREE.Vector3()
+
+          console.log(`[IFC→Doors] Processing mesh with ${vertices.length / 3} vertices`)
+
+          // Update matrix
+          obj.updateMatrixWorld(true)
+
+          // Process vertices in world space
+          for (let i = 0; i < vertices.length; i += 3) {
+            tempVec.set(vertices[i], vertices[i + 1], vertices[i + 2])
+            tempVec.applyMatrix4(obj.matrixWorld)
+
+            minX = Math.min(minX, tempVec.x)
+            maxX = Math.max(maxX, tempVec.x)
+            minY = Math.min(minY, tempVec.y)
+            maxY = Math.max(maxY, tempVec.y)
+            minZ = Math.min(minZ, tempVec.z)
+            maxZ = Math.max(maxZ, tempVec.z)
+          }
+
+          console.log(`[IFC→Doors] Bounds so far:`, {
+            x: [minX, maxX],
+            y: [minY, maxY],
+            z: [minZ, maxZ]
+          })
+        }
+      }
+    }
+  })
+
+  console.log(`[IFC→Doors] Checked ${checkedMeshes} meshes, found ${meshCount} belonging to door ${expressID}`)
+
+  if (foundMeshes && isFinite(minX)) {
+    const result = {
+      x: (minX + maxX) / 2,
+      y: (minY + maxY) / 2,
+      z: (minZ + maxZ) / 2
+    }
+    console.log(`[IFC→Doors] Final position for door ${expressID}:`, result)
+    return result
+  }
+
+  console.warn(`[IFC→Doors] No valid geometry found for door ${expressID}`)
+  return { x: 0, y: 0, z: 0 }
+}
+
+/**
+ * Get door opening direction from metadata
+ */
+function getDoorDirection(doorNode) {
+  if (doorNode.userData?.ifcProperties) {
+    const props = doorNode.userData.ifcProperties
+    const opType = (props.operationType || props.OperationType || '').toUpperCase()
+    const predType = (props.predefinedType || '').toUpperCase()
+
+    if (opType.includes('LEFT') || predType.includes('LEFT')) return -1
+    if (opType.includes('RIGHT') || predType.includes('RIGHT')) return 1
+  }
+
+  return 1 // Default: open to the right
+}
+
+/**
+ * Create door toggle handler
+ */
+function createDoorToggleHandler(doorNode) {
+  return function() {
+    const state = doorNode.userData.doorState
+    if (!state) return
+
+    // Get action node reference from state
+    const actionNode = state.actionNode
+
+    if (state.isOpen) {
+      // Close door
+      state.targetRotation = 0
+      state.isOpen = false
+      if (actionNode) actionNode.label = 'Open Door'
+    } else {
+      // Open door
+      state.targetRotation = state.openAngle * state.direction
+      state.isOpen = true
+      if (actionNode) actionNode.label = 'Close Door'
+    }
+
+    // Animate door rotation
+    animateDoor(doorNode, state)
+  }
+}
+
+/**
+ * Animate door rotation smoothly
+ */
+function animateDoor(doorNode, state) {
+  const startRotation = doorNode.rotation.y
+  const targetRotation = state.originalRotation + state.targetRotation
+  const duration = 0.5 // seconds
+  const startTime = Date.now()
+
+  function animate() {
+    const elapsed = (Date.now() - startTime) / 1000
+    const progress = Math.min(elapsed / duration, 1)
+
+    // Ease out cubic
+    const eased = 1 - Math.pow(1 - progress, 3)
+
+    doorNode.rotation.y = startRotation + (targetRotation - startRotation) * eased
+
+    if (progress < 1) {
+      requestAnimationFrame(animate)
+    }
+  }
+
+  animate()
 }
