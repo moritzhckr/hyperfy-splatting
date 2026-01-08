@@ -13,6 +13,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [v0.16.0]
+
+### Added
+- core: support for AI and AI generated apps via ChatGPT, Grok, Gemini etc (see .env)
+- core: env for cleaning up old blueprints and assets on launch (CLEAN=true)
+- core: support for remote databases
+- core: added safemode for rare case an app plays up
+- core: XR/VR improvements to physical movement, snap turn etc
+- core: XR/VR building basics
+- apps: support for `prim` shapes and optimizations to support thousands of unique primitive shapes at once
+- apps: support for applying physics force to push players (player.push(force))
+- apps: event.isLocalPlayer added to physics events onTriggerEnter and onTriggerLeave
+- apps: new `animate` event to help only animating apps nearby (distance based). 
+
+### Changed
+- core: more boot logs for brevity
+- core: fix not being able to see chat text selection
+- [BREAKING] core: apps now remain active while being moved in edit mode by default, disable with app.resetOnMove=true or check at runtime with app.isMoving. existing apps that use world space nodes will likely need to update their code.
+- core: improved AO to look slightly more natural
+- core: when creating nodes you can now also use Vector3 instances if needed, instead of requiring plain old arrays
+- core: support alt key in numeric inputs for small steps
+- core: support backquote (`) to toggle pointer lock
+
+
+### Fixed
+- core: safely capture errors during app update calls
+- core: ensure code editor syncs correctly over multiplayer if both editors have the code window open and one hits save
+- core: nested kinematic rigidbody physics not updating correctly outside fixedUpdate
+- core: fix false disconnects that keep happening on some worlds (ping-pong related)
+
 ## [v0.15.0]
 
 ### Added
@@ -464,7 +494,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Basic project structure
 - Core functionality from original project
 
-[Unreleased]: https://github.com/hyperfy-xyz/hyperfy/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/hyperfy-xyz/hyperfy/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/hyperfy-xyz/hyperfy/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/hyperfy-xyz/hyperfy/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/hyperfy-xyz/hyperfy/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/hyperfy-xyz/hyperfy/compare/v0.12.0...v0.13.0
