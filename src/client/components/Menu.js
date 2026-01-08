@@ -774,6 +774,12 @@ export const fileKinds = {
     exts: ['mp3'],
     placeholder: 'mp3',
   },
+  splat: {
+    type: 'splat',
+    accept: '.ply,.splat,.ksplat,.spz,.sogs,.zip',
+    exts: ['ply', 'splat', 'ksplat', 'spz', 'sogs', 'zip'],
+    placeholder: 'ply,splat,ksplat,spz,sogs,zip',
+  },
 }
 
 export function MenuItemFile({ world, label, hint, kind: kindName, value, onChange }) {

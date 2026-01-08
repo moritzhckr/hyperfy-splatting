@@ -8,6 +8,7 @@ app.configure([
   {
     key: 'splatFile',
     type: 'file',
+    kind: 'splat',
     label: 'Splat File',
     initial: null,
     accept: '.ply,.splat,.ksplat,.spz,.sogs,.zip',
@@ -15,7 +16,7 @@ app.configure([
   },
   {
     key: 'sortMode',
-    type: 'select',
+    type: 'switch',
     label: 'Sort Mode',
     initial: 'auto',
     options: [
@@ -24,13 +25,6 @@ app.configure([
       { value: 'none', label: 'None' }
     ],
     hint: 'Splat sorting algorithm'
-  },
-  {
-    key: 'showCube',
-    type: 'toggle',
-    label: 'Show Cube Handle',
-    initial: false,
-    hint: 'Toggle visibility of positioning cube handle'
   },
   {
     key: 'autoRotate',
@@ -61,53 +55,44 @@ app.configure([
 // Only run rendering logic on client
 if (world.isClient) {
 
-// Create cube handle (don't add it initially since initial: false)
-const cubeHandle = app.create('prim', {
+// Create default cube (always visible, like Model.hyp)
+const defaultCube = app.create('prim', {
   type: 'box',
-  position: [0, 0, 0],
-  scale: [0.5, 0.5, 0.5],
+  position: [0, 0.5, 0], // Lift up half height so it sits on ground
+  scale: [1, 1, 1],
   color: '#ffaa00',
-  opacity: 0.2,
+  opacity: 0.3,
   transparent: true,
   castShadow: false,
   receiveShadow: false,
   frustumCulled: true
 })
-// Don't add to app initially since showCube starts as false
+// Always add the default cube
+app.add(defaultCube)
 
 // App state
 const state = {
   splat: null,
   lastSplatFile: null,
   lastSortMode: null,
-  lastShowCube: false,  // Initialize to match initial value
   lastColor: null,
   lastOpacity: null,
   lastAutoRotate: null
 }
 
-// Helper functions
-function updateCubeVisibility() {
-  if (typeof props.showCube !== 'undefined' && props.showCube !== state.lastShowCube) {
-    if (props.showCube) {
-      // Show cube by adding it back to the app
-      if (!cubeHandle.parent) {
-        app.add(cubeHandle)
-      }
-    } else {
-      // Hide cube by removing it from the app
-      if (cubeHandle.parent) {
-        cubeHandle.parent.remove(cubeHandle)
-      }
-    }
-    state.lastShowCube = props.showCube
-  }
-}
-
 function createSplat() {
   try {
+    // Handle both object format {type, name, url} and string format
+    const splatUrl = typeof props.splatFile === 'object' && props.splatFile && props.splatFile.url 
+      ? props.splatFile.url 
+      : props.splatFile
+    
+    if (!splatUrl || typeof splatUrl !== 'string' || !splatUrl.startsWith('asset://')) {
+      return
+    }
+    
     state.splat = app.create('gaussiansplat', {
-      src: props.splatFile,
+      src: splatUrl,
       sortMode: props.sortMode || 'auto',
       linked: false,
       color: props.color || '#ffffff',
@@ -131,7 +116,7 @@ function createSplat() {
 }
 
 function removeSplat() {
-  if (state.splat?.parent) {
+  if (state.splat && state.splat.parent) {
     state.splat.parent.remove(state.splat)
     state.splat = null
   }
@@ -140,7 +125,11 @@ function removeSplat() {
 function updateSplatFile() {
   if (props.splatFile !== state.lastSplatFile) {
     removeSplat()
-    if (props.splatFile && typeof props.splatFile === 'string' && props.splatFile.startsWith('asset://')) {
+    // Handle both object format {type, name, url} and string format
+    const splatUrl = typeof props.splatFile === 'object' && props.splatFile && props.splatFile.url 
+      ? props.splatFile.url 
+      : props.splatFile
+    if (splatUrl && typeof splatUrl === 'string' && splatUrl.startsWith('asset://')) {
       createSplat()
     }
     state.lastSplatFile = props.splatFile
@@ -200,21 +189,11 @@ function updateAutoRotate() {
 
 
 app.on('update', () => {
-  updateCubeVisibility()
   updateSplatFile()
   updateSortMode()
   updateColor()
   updateOpacity()
   updateAutoRotate()
-})
-
-// Gaussian Splat app initialized with properties: {
-  splatFile: 'file',
-  sortMode: 'select',
-  showCube: 'toggle', 
-  autoRotate: 'toggle',
-  color: 'color',
-  opacity: 'range'
 })
 
 } // end if (world.isClient)

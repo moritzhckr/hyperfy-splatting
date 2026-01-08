@@ -1,4 +1,4 @@
 {
   "name": "Default",
-  "apps": ["Model.hyp", "Image.hyp", "Video.hyp", "Text.hyp"]
+  "apps": ["Model.hyp", "Image.hyp", "Video.hyp", "Text.hyp", "gs.hyp"]
 }
