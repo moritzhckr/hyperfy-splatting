@@ -336,9 +336,11 @@ export class ClientLoader extends System {
       }
       if (type === 'splat') {
         const format = file.name.split('.').pop().toLowerCase()
+        console.log('📦 [ClientLoader] Loading splat file:', file.name, 'Format:', format, 'Size:', file.size)
 
         // For SPZ: Use fileBytes approach to avoid gzip conflicts
         if (format === 'spz') {
+          console.log('🔵 [ClientLoader] Using SPZ-specific loading path')
           const fileBytes = await file.arrayBuffer()
 
           // Debug: Check the actual file data
@@ -350,20 +352,49 @@ export class ClientLoader extends System {
           const createSplatMesh = async (options = {}) => {
             const { SplatMesh } = await import('@sparkjsdev/spark')
 
-            // CRITICAL FIX: Force 10x scale to avoid float precision artifacts
-            const PRECISION_SCALE = 10.0
+            console.log('🔧 [ClientLoader SPZ] Creating SplatMesh with fileBytes approach')
+            console.log('   fileBytes length:', fileBytes.byteLength)
+            console.log('   format:', format)
 
-            const splatMeshOptions = {
-              fileBytes: fileBytes,
-              fileType: format,
-              fileName: file.name,
-              scale: PRECISION_SCALE, // Force larger scale
-              ...options
-            }
+            // Convert fileBytes to Blob URL - onLoad callback works better with URLs
+            const blob = new Blob([fileBytes], { type: 'application/octet-stream' })
+            const blobUrl = URL.createObjectURL(blob)
+            console.log('   Created blob URL:', blobUrl)
 
-            const splatMesh = new SplatMesh(splatMeshOptions)
+            // Wrap onLoad callback in a Promise to wait for loading
+            return new Promise((resolve, reject) => {
+              const splatMeshOptions = {
+                url: blobUrl,  // Use URL instead of fileBytes
+                fileType: format,
+                // No scale override - use default
+                onLoad: (mesh) => {
+                  console.log('✅ [ClientLoader SPZ] onLoad callback fired! numSplats:', mesh.numSplats)
+                  // Clean up blob URL
+                  URL.revokeObjectURL(blobUrl)
+                  resolve(mesh)
+                },
+                ...options
+              }
 
-            return splatMesh
+              try {
+                console.log('   Creating SplatMesh...')
+                const splatMesh = new SplatMesh(splatMeshOptions)
+                console.log('   SplatMesh created, waiting for onLoad...')
+
+                // Safety timeout - if onLoad doesn't fire in 10 seconds, something is wrong
+                setTimeout(() => {
+                  if (splatMesh.numSplats === 0 && !splatMesh.isInitialized) {
+                    console.warn('⚠️ [ClientLoader SPZ] onLoad not called after 10s, resolving anyway')
+                    URL.revokeObjectURL(blobUrl)
+                    resolve(splatMesh)
+                  }
+                }, 10000)
+              } catch (error) {
+                console.error('❌ [ClientLoader SPZ] SplatMesh creation failed:', error)
+                URL.revokeObjectURL(blobUrl)
+                reject(error)
+              }
+            })
           }
 
           const splatData = {
@@ -390,20 +421,49 @@ export class ClientLoader extends System {
         const createSplatMesh = async (options = {}) => {
           const { SplatMesh } = await import('@sparkjsdev/spark')
 
-          // CRITICAL FIX: Force 10x scale to avoid float precision artifacts
-          const PRECISION_SCALE = 10.0
+          console.log('🔧 [ClientLoader PLY] Creating SplatMesh with fileBytes approach')
+          console.log('   fileBytes length:', fileBytes.byteLength)
+          console.log('   format:', format)
 
-          const splatMeshOptions = {
-            fileBytes: fileBytes,
-            fileType: format,
-            fileName: file.name,
-            scale: PRECISION_SCALE, // Force larger scale
-            ...options
-          }
+          // Convert fileBytes to Blob URL - onLoad callback works better with URLs
+          const blob = new Blob([fileBytes], { type: 'application/octet-stream' })
+          const blobUrl = URL.createObjectURL(blob)
+          console.log('   Created blob URL:', blobUrl)
 
-          const splatMesh = new SplatMesh(splatMeshOptions)
+          // Wrap onLoad callback in a Promise to wait for loading
+          return new Promise((resolve, reject) => {
+            const splatMeshOptions = {
+              url: blobUrl,  // Use URL instead of fileBytes
+              fileType: format,
+              // No scale override - use default
+              onLoad: (mesh) => {
+                console.log('✅ [ClientLoader PLY] onLoad callback fired! numSplats:', mesh.numSplats)
+                // Clean up blob URL
+                URL.revokeObjectURL(blobUrl)
+                resolve(mesh)
+              },
+              ...options
+            }
 
-          return splatMesh
+            try {
+              console.log('   Creating SplatMesh...')
+              const splatMesh = new SplatMesh(splatMeshOptions)
+              console.log('   SplatMesh created, waiting for onLoad...')
+
+              // Safety timeout - if onLoad doesn't fire in 10 seconds, something is wrong
+              setTimeout(() => {
+                if (splatMesh.numSplats === 0 && !splatMesh.isInitialized) {
+                  console.warn('⚠️ [ClientLoader PLY] onLoad not called after 10s, resolving anyway')
+                  URL.revokeObjectURL(blobUrl)
+                  resolve(splatMesh)
+                }
+              }, 10000)
+            } catch (error) {
+              console.error('❌ [ClientLoader PLY] SplatMesh creation failed:', error)
+              URL.revokeObjectURL(blobUrl)
+              reject(error)
+            }
+          })
         }
 
         const splatData = {

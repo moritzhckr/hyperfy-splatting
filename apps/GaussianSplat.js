@@ -11,8 +11,8 @@ app.configure([
     kind: 'splat',
     label: 'Splat File',
     initial: null,
-    accept: '.ply,.splat,.ksplat,.spz,.sogs,.zip',
-    hint: 'Upload PLY, KSPLAT, SPLAT, SPZ, or SOGS file'
+    accept: '.ply,.splat,.ksplat,.spz,.sog,.sogs,.zip',
+    hint: 'Upload PLY, KSPLAT, SPLAT, SPZ, SOG, SOGS, or ZIP file'
   },
   {
     key: 'sortMode',
@@ -25,13 +25,6 @@ app.configure([
       { value: 'none', label: 'None' }
     ],
     hint: 'Splat sorting algorithm'
-  },
-  {
-    key: 'autoRotate',
-    type: 'toggle',
-    label: 'Auto-Rotate Splats',
-    initial: true,
-    hint: 'Automatically rotate splats 180° on X-axis for correct orientation'
   },
   {
     key: 'color',
@@ -49,6 +42,16 @@ app.configure([
     max: 1.0,
     step: 0.01,
     hint: 'Overall transparency of the splats'
+  },
+  {
+    key: 'lodRenderScale',
+    type: 'range',
+    label: 'LOD Render Scale',
+    initial: 1.0,
+    min: 0.1,
+    max: 5.0,
+    step: 0.1,
+    hint: 'LOD quality control - higher = more culling (better performance), lower = more detail'
   },
 ])
 
@@ -77,7 +80,7 @@ const state = {
   lastSortMode: null,
   lastColor: null,
   lastOpacity: null,
-  lastAutoRotate: null
+  lastLodRenderScale: null
 }
 
 function createSplat() {
@@ -96,20 +99,15 @@ function createSplat() {
       sortMode: props.sortMode || 'auto',
       linked: false,
       color: props.color || '#ffffff',
-      opacity: props.opacity !== undefined ? props.opacity : 1.0
+      opacity: props.opacity !== undefined ? props.opacity : 1.0,
+      lodRenderScale: props.lodRenderScale !== undefined ? props.lodRenderScale : 1.0
     })
-    
-    if (props.autoRotate !== false) {
-      // Rotate the entire app instead of just the splat
-      // This way the transform values in the UI will be correct
-      app.rotation.x = Math.PI
-    }
-    
+
     app.add(state.splat)
     state.lastSplatFile = props.splatFile
     state.lastColor = props.color
     state.lastOpacity = props.opacity
-    state.lastAutoRotate = props.autoRotate
+    state.lastLodRenderScale = props.lodRenderScale
   } catch (error) {
     console.error('❌ Failed to create splat:', error)
   }
@@ -169,19 +167,13 @@ function updateOpacity() {
   }
 }
 
-function updateAutoRotate() {
-  if (props.autoRotate !== state.lastAutoRotate) {
+function updateLodRenderScale() {
+  if (state.splat && typeof props.lodRenderScale === 'number' && props.lodRenderScale !== state.lastLodRenderScale) {
     try {
-      if (props.autoRotate) {
-        // Enable auto-rotate: rotate app 180° on X-axis
-        app.rotation.x = Math.PI
-      } else {
-        // Disable auto-rotate: reset app rotation
-        app.rotation.x = 0
-      }
-      state.lastAutoRotate = props.autoRotate
+      state.splat.lodRenderScale = props.lodRenderScale
+      state.lastLodRenderScale = props.lodRenderScale
     } catch (error) {
-      console.error('❌ Failed to update auto-rotate:', error)
+      console.error('❌ Failed to update LOD render scale:', error)
     }
   }
 }
@@ -193,7 +185,7 @@ app.on('update', () => {
   updateSortMode()
   updateColor()
   updateOpacity()
-  updateAutoRotate()
+  updateLodRenderScale()
 })
 
 } // end if (world.isClient)

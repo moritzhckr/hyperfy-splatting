@@ -10,6 +10,7 @@ const defaults = {
   color: '#ffffff',
   opacity: 1.0,
   splatScale: 1.0,
+  lodRenderScale: 1.0, // NEW: LOD control - higher = more culling
 }
 
 const sortModes = ['auto', 'distance', 'none']
@@ -27,6 +28,7 @@ export class GaussianSplat extends Node {
     this._color = isString(data.color) ? data.color : defaults.color
     this._opacity = isNumber(data.opacity) ? Math.max(0, Math.min(1, data.opacity)) : defaults.opacity
     this._splatScale = isNumber(data.splatScale) ? data.splatScale : defaults.splatScale
+    this._lodRenderScale = isNumber(data.lodRenderScale) ? Math.max(0.1, data.lodRenderScale) : defaults.lodRenderScale
 
     this.loadingState = 'idle' // 'idle', 'loading', 'loaded', 'error'
     this.needsRebuild = false
@@ -74,14 +76,14 @@ export class GaussianSplat extends Node {
       // Use Hyperfy's standard loader system
       const format = this._src.split('.').pop()?.toLowerCase()
 
-      // For PLY/KSPLAT/SPLAT: Use standard loader
-      if (format === 'ply' || format === 'ksplat' || format === 'splat') {
+      // For PLY/KSPLAT/SPLAT/SPZ: Use standard loader
+      // SOGS and ZIP files are loaded directly via URL in Stage.js
+      if (format === 'ply' || format === 'ksplat' || format === 'splat' || format === 'spz') {
         // Load through Hyperfy's asset system
         let splatData = this.ctx.world.loader.get('splat', this._src)
         if (!splatData) {
           splatData = await this.ctx.world.loader.load('splat', this._src)
         }
-
         // Store the loaded data for createSplatHandle
         this.splatData = splatData
       }
@@ -93,31 +95,31 @@ export class GaussianSplat extends Node {
         await this.createSplatHandle()
       }
     } catch (error) {
-      console.error('❌ GaussianSplat loading failed:', error)
+      console.error('❌ [GaussianSplat] Loading failed:', error)
       this.loadingState = 'error'
     }
   }
 
   async createSplatHandle() {
-    if (!this._src || !this.ctx?.world?.stage) {
-      return
-    }
+    if (!this._src || !this.ctx?.world?.stage) return
 
     // Only create SplatMesh on client
-    if (this.ctx.world.network.isServer) {
-      return
-    }
+    if (this.ctx.world.network.isServer) return
 
     // Determine URL to use based on loaded data or fallback
     let actualURL = this.ctx.world.resolveURL(this._src)
 
     // For formats handled by standard loader, use the loaded data if available
     const format = this._src.split('.').pop()?.toLowerCase()
-    if ((format === 'ply' || format === 'ksplat' || format === 'splat') && this.splatData) {
-      // Use blob URL from standard loader
+
+    // SOGS/ZIP files need the actual URL (not blob) so Spark.js can detect fileType
+    const isSOGSFormat = format === 'sog' || format === 'sogs' || format === 'zip'
+
+    if ((format === 'ply' || format === 'ksplat' || format === 'splat' || format === 'spz') && this.splatData) {
+      // Use blob URL from standard loader for fileBytes formats
       actualURL = this.splatData.localUrl || actualURL
-    } else if (this.ctx.world.loader.hasFile(this._src)) {
-      // Fallback to cached file
+    } else if (!isSOGSFormat && this.ctx.world.loader.hasFile(this._src)) {
+      // Fallback to cached file blob URL (but NOT for SOGS/ZIP)
       const cachedFile = this.ctx.world.loader.getFile(this._src)
       if (cachedFile) {
         actualURL = URL.createObjectURL(cachedFile)
@@ -131,7 +133,8 @@ export class GaussianSplat extends Node {
       sortMode: this._sortMode,
       color: this._color,
       opacity: this._opacity,
-      splatScale: this._splatScale
+      splatScale: this._splatScale,
+      lodRenderScale: this._lodRenderScale
     })
   }
 
@@ -145,6 +148,7 @@ export class GaussianSplat extends Node {
     this._color = source._color
     this._opacity = source._opacity
     this._splatScale = source._splatScale
+    this._lodRenderScale = source._lodRenderScale
     this.loadingState = source.loadingState
     return this
   }
@@ -279,6 +283,22 @@ export class GaussianSplat extends Node {
     }
   }
 
+  get lodRenderScale() {
+    return this._lodRenderScale
+  }
+
+  set lodRenderScale(value = defaults.lodRenderScale) {
+    if (!isNumber(value)) {
+      throw new Error('[gaussiansplat] lodRenderScale must be a number')
+    }
+    value = Math.max(0.1, value) // Minimum 0.1
+    if (this._lodRenderScale === value) return
+    this._lodRenderScale = value
+    if (this.handle && this.handle.updateLodRenderScale) {
+      this.handle.updateLodRenderScale(value)
+    }
+  }
+
 
 
   getProxy() {
@@ -335,6 +355,12 @@ export class GaussianSplat extends Node {
         },
         set splatScale(value) {
           self.splatScale = value
+        },
+        get lodRenderScale() {
+          return self.lodRenderScale
+        },
+        set lodRenderScale(value) {
+          self.lodRenderScale = value
         },
       }
       proxy = Object.defineProperties(proxy, Object.getOwnPropertyDescriptors(super.getProxy()))

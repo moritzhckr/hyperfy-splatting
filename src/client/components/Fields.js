@@ -450,9 +450,9 @@ export const fileKinds = {
   },
   splat: {
     type: 'splat',
-    accept: '.ply,.splat,.ksplat,.spz,.sogs,.zip',
-    exts: ['ply', 'splat', 'ksplat', 'spz', 'sogs', 'zip'],
-    placeholder: 'ply,splat,ksplat,spz,sogs,zip',
+    accept: '.ply,.splat,.ksplat,.spz,.sog,.sogs,.zip',
+    exts: ['ply', 'splat', 'ksplat', 'spz', 'sog', 'sogs', 'zip'],
+    placeholder: 'ply,splat,ksplat,spz,sog,sogs,zip',
   },
 }
 

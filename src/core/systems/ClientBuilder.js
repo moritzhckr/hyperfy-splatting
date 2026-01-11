@@ -1061,7 +1061,7 @@ export class ClientBuilder extends System {
       const canPlace = this.canBuild()
       this.addAvatar(file, transform, canPlace)
     }
-    if (ext === 'ply' || ext === 'splat' || ext === 'ksplat' || ext === 'spz' || ext === 'zip' || ext === 'sogs') {
+    if (ext === 'ply' || ext === 'splat' || ext === 'ksplat' || ext === 'spz' || ext === 'sog' || ext === 'sogs' || ext === 'zip') {
       // Show warnings for specific file types
       if (ext === 'spz') {
         console.warn('⚠️ SPZ files have limited support. PLY and KSPLAT formats work best.')

@@ -314,7 +314,7 @@ export class Stage extends System {
     }
   }
 
-  async insertGaussianSplat({ url, node, matrix, color = '#ffffff', opacity = 1.0, splatScale = 1.0 }) {
+  async insertGaussianSplat({ url, node, matrix, color = '#ffffff', opacity = 1.0, splatScale = 1.0, lodRenderScale = 1.0 }) {
     // Only create SplatMesh on client
     if (this.world.network.isServer) {
       return {
@@ -323,20 +323,25 @@ export class Stage extends System {
         destroy: () => {}
       }
     }
-    
+
     try {
       // Dynamically import Spark.js only on client
       const { SplatMesh } = await import('@sparkjsdev/spark')
+
       // Detect file type from original source URL first
       let fileType = null
       const srcUrl = node._src || url
+
       if (srcUrl) {
         const ext = srcUrl.split('.').pop()?.toLowerCase()
+
         if (ext === 'ksplat' || ext === 'splat') {
           fileType = ext
         } else if (ext === 'spz') {
           fileType = null  // SPZ format is auto-detected by Spark.js
-        } else if (ext === 'sogs') {
+        } else if (ext === 'ply') {
+          fileType = 'ply'
+        } else if (ext === 'sog' || ext === 'sogs') {
           fileType = 'pcsogs'
         } else if (ext === 'zip') {
           fileType = 'pcsogs'  // ZIP files with splat data - treat as SOGS
@@ -344,15 +349,14 @@ export class Stage extends System {
           fileType = 'pcsogszip'  // Alternative SOGS ZIP extensions
         }
       }
-      
+
       // Determine the URL to use for loading
       let actualUrl = url
       const isSPZ = srcUrl && srcUrl.split('.').pop()?.toLowerCase() === 'spz'
-      const isSOGS = fileType === 'pcsogs' || fileType === 'pcsogszip' || (srcUrl && srcUrl.split('.').pop()?.toLowerCase() === 'zip')
+      const ext = srcUrl && srcUrl.split('.').pop()?.toLowerCase()
+      const isSOGS = fileType === 'pcsogs' || fileType === 'pcsogszip' || ext === 'zip' || ext === 'sog' || ext === 'sogs'
 
       if (isSPZ) {
-        // SPZ files: Use fileBytes approach to avoid gzip conflicts
-
         // Load via Hyperfy's standard asset system with fileBytes
         let splatData = this.world.loader.get('splat', srcUrl)
         if (!splatData) {
@@ -362,16 +366,16 @@ export class Stage extends System {
         // Create SplatMesh via fileBytes factory method
         const spzSplatMesh = await splatData.createSplatMesh()
 
-        // CRITICAL FIX: Compensate for the 10x precision scale applied in ClientLoader
-        // The loader applies 10x scale internally to avoid float precision issues
-        // We need to scale down by 0.1 to compensate, then apply user scale
-        const PRECISION_COMPENSATION = 0.1 // Compensate for 10x scale in loader
+        // Apply LOD render scale (NEW in Spark 0.1.10)
+        if (spzSplatMesh.lodRenderScale !== undefined) {
+          spzSplatMesh.lodRenderScale = lodRenderScale
+        }
 
-        // Apply combined scale (compensation * user scale)
-        const finalScale = PRECISION_COMPENSATION * (splatScale || 1.0)
-        spzSplatMesh.scale.setScalar(finalScale)
+        // Apply user scale
+        if (splatScale && splatScale !== 1.0) {
+          spzSplatMesh.scale.setScalar(splatScale)
+        }
 
-        // Skip the rest of the logic since SPZ is handled
         // Apply transform
         spzSplatMesh.matrix.copy(matrix)
         spzSplatMesh.matrixAutoUpdate = false
@@ -438,13 +442,15 @@ export class Stage extends System {
           },
           updateSplatScale: async (newScale) => {
             try {
-              // Apply scale with precision compensation
-              const PRECISION_COMPENSATION = 0.1
-              const finalScale = PRECISION_COMPENSATION * newScale
-              console.log('🔧 Updating SPZ splat scale:', newScale, '(with compensation:', finalScale, ')')
-              spzSplatMesh.scale.setScalar(finalScale)
+              console.log('🔧 Updating SPZ splat scale:', newScale)
+              spzSplatMesh.scale.setScalar(newScale)
             } catch (error) {
               console.warn('⚠️ Failed to update splat scale:', error)
+            }
+          },
+          updateLodRenderScale: (newLodRenderScale) => {
+            if (spzSplatMesh.lodRenderScale !== undefined) {
+              spzSplatMesh.lodRenderScale = newLodRenderScale
             }
           },
           destroy: () => {
@@ -457,11 +463,10 @@ export class Stage extends System {
         }
       } else if (isSOGS) {
         // SOGS/ZIP files: Use URL approach because they need to be unzipped by Spark.js
-
-        // For SOGS files, we need to use the actual URL so Spark.js can fetch and unzip
         const sogsSplatMesh = new SplatMesh({
           url: actualUrl,
-          fileType: fileType
+          fileType: fileType,
+          lodRenderScale: lodRenderScale // LOD control
         })
 
         // Apply transform
@@ -541,6 +546,11 @@ export class Stage extends System {
               console.warn('⚠️ Failed to update opacity:', error)
             }
           },
+          updateLodRenderScale: (newLodRenderScale) => {
+            if (sogsSplatMesh.lodRenderScale !== undefined) {
+              sogsSplatMesh.lodRenderScale = newLodRenderScale
+            }
+          },
           destroy: () => {
             this.scene.remove(sogsSplatMesh)
             this.splatMeshes.delete(id)
@@ -559,10 +569,15 @@ export class Stage extends System {
         // Create SplatMesh via fileBytes factory method
         const otherSplatMesh = await splatData.createSplatMesh()
 
-        // CRITICAL FIX: Compensate for the 10x precision scale applied in ClientLoader
-        const PRECISION_COMPENSATION = 0.1
-        const finalScale = PRECISION_COMPENSATION * (splatScale || 1.0)
-        otherSplatMesh.scale.setScalar(finalScale)
+        // Apply LOD render scale (NEW in Spark 0.1.10)
+        if (otherSplatMesh.lodRenderScale !== undefined) {
+          otherSplatMesh.lodRenderScale = lodRenderScale
+        }
+
+        // Apply user scale
+        if (splatScale && splatScale !== 1.0) {
+          otherSplatMesh.scale.setScalar(splatScale)
+        }
 
         // Apply transform
         otherSplatMesh.matrix.copy(matrix)
@@ -624,6 +639,11 @@ export class Stage extends System {
               otherSplatMesh.opacity = newOpacity
             } catch (error) {
               console.warn('⚠️ Failed to update opacity:', error)
+            }
+          },
+          updateLodRenderScale: (newLodRenderScale) => {
+            if (otherSplatMesh.lodRenderScale !== undefined) {
+              otherSplatMesh.lodRenderScale = newLodRenderScale
             }
           },
           destroy: () => {

@@ -44,7 +44,7 @@
     "@firebolt-dev/css": "^0.4.3",
     "@firebolt-dev/jsx": "^0.4.3",
     "@pixiv/three-vrm": "^3.3.3",
-    "@sparkjsdev/spark": "^0.1.9",
+    "@sparkjsdev/spark": "^0.1.10",
     "better-sqlite3": "^11.7.2",
     "d3": "^7.9.0",
     "dotenv-flow": "^4.1.0",
