@@ -5,6 +5,8 @@ import { System } from './System'
 import { LooseOctree } from '../extras/LooseOctree'
 
 // Spark.js will be dynamically imported on client-side only
+// SparkRenderer attached to camera for float16 precision fix
+let sparkRendererInstance = null
 
 const vec2 = new THREE.Vector2()
 
@@ -326,7 +328,17 @@ export class Stage extends System {
 
     try {
       // Dynamically import Spark.js only on client
-      const { SplatMesh } = await import('@sparkjsdev/spark')
+      const { SplatMesh, SparkRenderer } = await import('@sparkjsdev/spark')
+
+      // Create SparkRenderer and attach to camera for float16 precision fix
+      // This prevents line patterns/quantization artifacts with small position values
+      if (!sparkRendererInstance && this.world.camera && this.world.graphics?.renderer) {
+        sparkRendererInstance = new SparkRenderer({
+          renderer: this.world.graphics.renderer
+        })
+        this.world.camera.add(sparkRendererInstance)
+        console.log('✅ SparkRenderer attached to camera for precision fix')
+      }
 
       // Detect file type from original source URL first
       let fileType = null
