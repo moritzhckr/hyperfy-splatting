@@ -8,6 +8,29 @@ import { LooseOctree } from '../extras/LooseOctree'
 // SparkRenderer attached to camera for float16 precision fix
 let sparkRendererInstance = null
 
+// Device-based performance settings
+const getDevicePerformanceTier = () => {
+  if (typeof window === 'undefined') return 'desktop'
+
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+  const isQuest = /OculusBrowser|Quest/i.test(navigator.userAgent)
+  const hasLowMemory = navigator.deviceMemory && navigator.deviceMemory < 4
+
+  if (isQuest) return 'quest'
+  if (isMobile || hasLowMemory) return 'mobile'
+  return 'desktop'
+}
+
+// LOD scale: higher = more aggressive culling = fewer splats rendered
+const getDefaultLodRenderScale = () => {
+  const tier = getDevicePerformanceTier()
+  switch (tier) {
+    case 'quest': return 4.0    // Very aggressive LOD for Quest
+    case 'mobile': return 3.0   // Aggressive LOD for mobile
+    default: return 1.0         // Normal LOD for desktop
+  }
+}
+
 const vec2 = new THREE.Vector2()
 
 /**
@@ -337,7 +360,16 @@ export class Stage extends System {
           renderer: this.world.graphics.renderer
         })
         this.world.camera.add(sparkRendererInstance)
-        console.log('✅ SparkRenderer attached to camera for precision fix')
+
+        // Reduce maxStdDev on mobile/Quest for better performance
+        // Default is ~2.8, Quest recommends Math.sqrt(5) ≈ 2.236
+        const tier = getDevicePerformanceTier()
+        if (tier === 'quest') {
+          sparkRendererInstance.maxStdDev = Math.sqrt(5) // ~2.236 for VR
+        } else if (tier === 'mobile') {
+          sparkRendererInstance.maxStdDev = 2.0 // More aggressive for mobile
+        }
+        console.log(`✅ SparkRenderer attached (tier: ${tier}, maxStdDev: ${sparkRendererInstance.maxStdDev})`)
       }
 
       // Detect file type from original source URL first
@@ -378,9 +410,9 @@ export class Stage extends System {
         // Create SplatMesh via fileBytes factory method
         const spzSplatMesh = await splatData.createSplatMesh()
 
-        // Apply LOD render scale (NEW in Spark 0.1.10)
+        // Apply LOD render scale - use device-based default if not specified
         if (spzSplatMesh.lodRenderScale !== undefined) {
-          spzSplatMesh.lodRenderScale = lodRenderScale
+          spzSplatMesh.lodRenderScale = lodRenderScale || getDefaultLodRenderScale()
         }
 
         // Apply user scale
@@ -478,7 +510,7 @@ export class Stage extends System {
         const sogsSplatMesh = new SplatMesh({
           url: actualUrl,
           fileType: fileType,
-          lodRenderScale: lodRenderScale // LOD control
+          lodRenderScale: lodRenderScale || getDefaultLodRenderScale()
         })
 
         // Apply transform
@@ -581,9 +613,9 @@ export class Stage extends System {
         // Create SplatMesh via fileBytes factory method
         const otherSplatMesh = await splatData.createSplatMesh()
 
-        // Apply LOD render scale (NEW in Spark 0.1.10)
+        // Apply LOD render scale - use device-based default if not specified
         if (otherSplatMesh.lodRenderScale !== undefined) {
-          otherSplatMesh.lodRenderScale = lodRenderScale
+          otherSplatMesh.lodRenderScale = lodRenderScale || getDefaultLodRenderScale()
         }
 
         // Apply user scale
