@@ -232,14 +232,7 @@ export class ClientBuilder extends System {
     }
     // inspect in pointer-lock
     if (this.beam.active && this.control.mouseRight.pressed) {
-      let entity = this.getEntityAtBeam()
-      // Also check splats (on-demand, not every frame)
-      if (!entity) {
-        const splatHits = this.world.stage.raycastSplatsAtReticle()
-        if (splatHits.length > 0) {
-          entity = splatHits[0].getEntity?.()
-        }
-      }
+      let entity = this._getClosestEntityAtBeam()
       if (entity?.isApp) {
         this.select(null)
         this.control.pointer.unlock()
@@ -253,14 +246,7 @@ export class ClientBuilder extends System {
     }
     // inspect out of pointer-lock
     else if (!this.selected && !this.beam.active && this.control.mouseRight.pressed) {
-      let entity = this.getEntityAtCursor()
-      // Also check splats (on-demand, not every frame)
-      if (!entity) {
-        const splatHits = this.world.stage.raycastSplatsAtPointer(this.control.pointer.position)
-        if (splatHits.length > 0) {
-          entity = splatHits[0].getEntity?.()
-        }
-      }
+      let entity = this._getClosestEntityAtCursor()
       if (entity?.isApp) {
         this.select(null)
         this.control.pointer.unlock()
@@ -350,15 +336,38 @@ export class ClientBuilder extends System {
     }
     if (!this.justPointerLocked && this.beam.active && this.control.mouseLeft.pressed) {
       // Helper to get entity from regular raycast OR splat raycast
-      // Returns { entity, isSplat } to know if we hit a splat
+      // Compares distances and returns the CLOSEST hit
       const getEntityIncludingSplats = () => {
-        let entity = this.getEntityAtBeam()
-        if (entity) return { entity, isSplat: false }
-        // Also check splats if no regular entity found
+        // Get regular raycast hit with distance
+        const origin = this.beam.position
+        const dir = v1.set(0, 0, -1).applyQuaternion(this.beam.quaternion)
+        const regularHits = this.world.stage.raycast(origin, dir)
+        let regularEntity = null
+        let regularDistance = Infinity
+        for (const hit of regularHits) {
+          const entity = hit.getEntity?.()
+          if (entity) {
+            regularEntity = entity
+            regularDistance = hit.distance || Infinity
+            break
+          }
+        }
+
+        // Get splat raycast hit with distance
         const splatHits = this.world.stage.raycastSplatsAtReticle()
+        let splatEntity = null
+        let splatDistance = Infinity
         if (splatHits.length > 0) {
-          entity = splatHits[0].getEntity?.()
-          if (entity) return { entity, isSplat: true }
+          splatEntity = splatHits[0].getEntity?.()
+          splatDistance = splatHits[0].distance || Infinity
+        }
+
+        // Return the closer one
+        if (splatEntity && splatDistance < regularDistance) {
+          return { entity: splatEntity, isSplat: true }
+        }
+        if (regularEntity) {
+          return { entity: regularEntity, isSplat: false }
         }
         return { entity: null, isSplat: false }
       }
@@ -978,6 +987,70 @@ export class ClientBuilder extends System {
       if (entity) break
     }
     return entity
+  }
+
+  // Get closest entity including splats (compares distances)
+  _getClosestEntityAtBeam() {
+    const origin = this.beam.position
+    const dir = v1.set(0, 0, -1).applyQuaternion(this.beam.quaternion)
+
+    // Regular raycast
+    const regularHits = this.world.stage.raycast(origin, dir)
+    let regularEntity = null
+    let regularDistance = Infinity
+    for (const hit of regularHits) {
+      const entity = hit.getEntity?.()
+      if (entity) {
+        regularEntity = entity
+        regularDistance = hit.distance || Infinity
+        break
+      }
+    }
+
+    // Splat raycast
+    const splatHits = this.world.stage.raycastSplatsAtReticle()
+    let splatEntity = null
+    let splatDistance = Infinity
+    if (splatHits.length > 0) {
+      splatEntity = splatHits[0].getEntity?.()
+      splatDistance = splatHits[0].distance || Infinity
+    }
+
+    // Return closer one
+    if (splatEntity && splatDistance < regularDistance) {
+      return splatEntity
+    }
+    return regularEntity
+  }
+
+  _getClosestEntityAtCursor() {
+    // Regular raycast
+    const regularHits = this.world.stage.raycastPointer(this.control.pointer.position)
+    let regularEntity = null
+    let regularDistance = Infinity
+    for (const hit of regularHits) {
+      const entity = hit.getEntity?.()
+      if (entity) {
+        regularEntity = entity
+        regularDistance = hit.distance || Infinity
+        break
+      }
+    }
+
+    // Splat raycast
+    const splatHits = this.world.stage.raycastSplatsAtPointer(this.control.pointer.position)
+    let splatEntity = null
+    let splatDistance = Infinity
+    if (splatHits.length > 0) {
+      splatEntity = splatHits[0].getEntity?.()
+      splatDistance = splatHits[0].distance || Infinity
+    }
+
+    // Return closer one
+    if (splatEntity && splatDistance < regularDistance) {
+      return splatEntity
+    }
+    return regularEntity
   }
 
   getHitAtBeam(ignoreEntity, ignorePlayers) {
