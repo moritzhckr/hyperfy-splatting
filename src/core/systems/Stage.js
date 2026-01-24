@@ -278,43 +278,28 @@ export class Stage extends System {
     return this.raycastHits
   }
 
-  // Raycast against SplatMeshes - optimized with bounding box pre-check
+  // Internal splat raycast - DISABLED for continuous raycasting (performance)
   _raycastSplatMeshes(raycaster, hits) {
-    if (this.splatMeshes.size === 0) return
+    // Disabled for continuous use - too expensive every frame
+    // Use raycastSplatsOnDemand() for on-click selection instead
+    return
+  }
 
-    // Quick bounding box check first, then only do full raycast on candidates
-    const candidates = []
+  // On-demand splat raycasting - call this only on click/selection, not every frame!
+  // Uses Spark.js native WASM-based ellipsoid raycasting for precision
+  raycastSplatsOnDemand(raycaster) {
+    if (this.splatMeshes.size === 0) return []
 
+    const hits = []
+
+    // Raycast ALL splats directly using Spark's precise ellipsoid raycasting
+    // No bounding box pre-check needed - Spark's WASM is fast enough for on-demand use
     for (const [id, splatMesh] of this.splatMeshes) {
-      // Skip if not initialized
       if (!splatMesh.isInitialized) continue
 
-      // Get or compute bounding box (cached on mesh)
-      if (!splatMesh._hyperfyBBox) {
-        try {
-          splatMesh._hyperfyBBox = splatMesh.getBoundingBox ? splatMesh.getBoundingBox() : null
-        } catch (e) {
-          splatMesh._hyperfyBBox = null
-        }
-      }
-
-      // Quick bounding box intersection test
-      if (splatMesh._hyperfyBBox && !splatMesh._hyperfyBBox.isEmpty()) {
-        if (raycaster.ray.intersectsBox(splatMesh._hyperfyBBox)) {
-          candidates.push(splatMesh)
-        }
-      } else {
-        // No bounding box, include as candidate
-        candidates.push(splatMesh)
-      }
-    }
-
-    // Only do expensive raycast on candidates that passed bounding box test
-    if (candidates.length === 0) return
-
-    // Use Spark's native raycast on each candidate
-    for (const splatMesh of candidates) {
       const splatHits = []
+      // Spark.js raycast uses WASM with RAYCAST_ELLIPSOID=true
+      // This tests against actual splat ellipsoids, not just bounding boxes
       splatMesh.raycast(raycaster, splatHits)
 
       for (const hit of splatHits) {
@@ -329,10 +314,27 @@ export class Stage extends System {
       }
     }
 
-    // Sort all hits by distance
-    if (hits.length > 1) {
-      hits.sort((a, b) => a.distance - b.distance)
-    }
+    hits.sort((a, b) => a.distance - b.distance)
+    return hits
+  }
+
+  // Helper: Setup raycaster from pointer position for on-demand splat selection
+  raycastSplatsAtPointer(position) {
+    if (!this.viewport) return []
+    const rect = this.viewport.getBoundingClientRect()
+    vec2.x = ((position.x - rect.left) / rect.width) * 2 - 1
+    vec2.y = -((position.y - rect.top) / rect.height) * 2 + 1
+    this.raycaster.setFromCamera(vec2, this.world.camera)
+    return this.raycastSplatsOnDemand(this.raycaster)
+  }
+
+  // Helper: Setup raycaster from reticle (center screen) for on-demand splat selection
+  raycastSplatsAtReticle() {
+    if (!this.viewport) return []
+    vec2.x = 0
+    vec2.y = 0
+    this.raycaster.setFromCamera(vec2, this.world.camera)
+    return this.raycastSplatsOnDemand(this.raycaster)
   }
 
   async insertGaussianSplat({ url, node, matrix, color = '#ffffff', opacity = 1.0, splatScale = 1.0, lodRenderScale = 1.0 }) {

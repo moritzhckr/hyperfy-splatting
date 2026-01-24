@@ -232,7 +232,14 @@ export class ClientBuilder extends System {
     }
     // inspect in pointer-lock
     if (this.beam.active && this.control.mouseRight.pressed) {
-      const entity = this.getEntityAtBeam()
+      let entity = this.getEntityAtBeam()
+      // Also check splats (on-demand, not every frame)
+      if (!entity) {
+        const splatHits = this.world.stage.raycastSplatsAtReticle()
+        if (splatHits.length > 0) {
+          entity = splatHits[0].getEntity?.()
+        }
+      }
       if (entity?.isApp) {
         this.select(null)
         this.control.pointer.unlock()
@@ -246,7 +253,14 @@ export class ClientBuilder extends System {
     }
     // inspect out of pointer-lock
     else if (!this.selected && !this.beam.active && this.control.mouseRight.pressed) {
-      const entity = this.getEntityAtCursor()
+      let entity = this.getEntityAtCursor()
+      // Also check splats (on-demand, not every frame)
+      if (!entity) {
+        const splatHits = this.world.stage.raycastSplatsAtPointer(this.control.pointer.position)
+        if (splatHits.length > 0) {
+          entity = splatHits[0].getEntity?.()
+        }
+      }
       if (entity?.isApp) {
         this.select(null)
         this.control.pointer.unlock()
@@ -335,10 +349,30 @@ export class ClientBuilder extends System {
       }
     }
     if (!this.justPointerLocked && this.beam.active && this.control.mouseLeft.pressed) {
+      // Helper to get entity from regular raycast OR splat raycast
+      // Returns { entity, isSplat } to know if we hit a splat
+      const getEntityIncludingSplats = () => {
+        let entity = this.getEntityAtBeam()
+        if (entity) return { entity, isSplat: false }
+        // Also check splats if no regular entity found
+        const splatHits = this.world.stage.raycastSplatsAtReticle()
+        if (splatHits.length > 0) {
+          entity = splatHits[0].getEntity?.()
+          if (entity) return { entity, isSplat: true }
+        }
+        return { entity: null, isSplat: false }
+      }
+
       // if nothing selected, attempt to select
       if (!this.selected) {
-        const entity = this.getEntityAtBeam()
-        if (entity?.isApp && !entity.data.pinned && !entity.blueprint.scene) this.select(entity)
+        const { entity, isSplat } = getEntityIncludingSplats()
+        if (entity?.isApp && !entity.data.pinned && !entity.blueprint.scene) {
+          // For splats: force translate mode (grab mode would be too expensive)
+          if (isSplat && this.mode === 'grab') {
+            this.setMode('translate')
+          }
+          this.select(entity)
+        }
       }
       // if selected in grab mode, place
       else if (this.selected && this.mode === 'grab') {
@@ -350,7 +384,7 @@ export class ClientBuilder extends System {
         (this.mode === 'translate' || this.mode === 'rotate' || this.mode === 'scale') &&
         !this.gizmoActive
       ) {
-        const entity = this.getEntityAtBeam()
+        const { entity, isSplat } = getEntityIncludingSplats()
         if (entity?.isApp && !entity.data.pinned && !entity.blueprint.scene) this.select(entity)
         else this.select(null)
       }
@@ -1173,6 +1207,10 @@ let lastShowCube = false  // Initialize to match initial value
 let lastColor = null
 let lastOpacity = null
 
+// Check if app already has rotation applied (from saved data or previous auto-rotate)
+// Identity quaternion is [0,0,0,1], so if any rotation exists, skip auto-rotate
+const hasExistingRotation = Math.abs(app.rotation.x) > 0.01 || Math.abs(app.rotation.y) > 0.01 || Math.abs(app.rotation.z) > 0.01
+
 app.on('update', () => {
   // Update cube visibility only when changed (always check, not just when splat exists)
   if (cubeHandle && typeof props.showCube !== 'undefined' && props.showCube !== lastShowCube) {
@@ -1190,7 +1228,7 @@ app.on('update', () => {
     lastShowCube = props.showCube
     console.log('🎲 Cube visibility updated to:', props.showCube)
   }
-  
+
   // Handle splat file changes
   if (props.splatFile && typeof props.splatFile === 'string' && props.splatFile.startsWith('asset://')) {
     // Only create new splat if the file changed
@@ -1200,7 +1238,7 @@ app.on('update', () => {
         splat.parent.remove(splat)
         splat = null
       }
-      
+
       // Create new splat (only once!)
       try {
         splat = app.create('gaussiansplat', {
@@ -1210,14 +1248,16 @@ app.on('update', () => {
           color: props.color || '#ffffff',
           opacity: props.opacity !== undefined ? props.opacity : 1.0
         })
-        
+
         // Rotate 180° around X-axis to fix splat orientation (if enabled)
-        if (props.autoRotate !== false) {
+        // ONLY apply on first load (identity quaternion), not on rebuild
+        // This preserves user's manual rotations
+        if (props.autoRotate !== false && !hasExistingRotation) {
           // Rotate the entire app instead of just the splat
           // This way the transform values in the UI will be correct
           app.rotation.x = Math.PI
         }
-        
+
         app.add(splat)
         lastSplatFile = props.splatFile
         lastColor = props.color
