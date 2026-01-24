@@ -337,6 +337,81 @@ export class Stage extends System {
     return this.raycastSplatsOnDemand(this.raycaster)
   }
 
+  // Helper: Setup common splat mesh properties
+  _setupSplatMesh(splatMesh, { node, matrix, color, opacity, splatScale, lodRenderScale }) {
+    // Apply LOD render scale
+    if (splatMesh.lodRenderScale !== undefined) {
+      splatMesh.lodRenderScale = lodRenderScale || getDefaultLodRenderScale()
+    }
+
+    // Apply user scale
+    if (splatScale && splatScale !== 1.0) {
+      splatMesh.scale.setScalar(splatScale)
+    }
+
+    // Apply transform
+    splatMesh.matrix.copy(matrix)
+    splatMesh.matrixAutoUpdate = false
+    splatMesh.updateMatrixWorld(true)
+
+    // Store node reference for raycasting
+    splatMesh._hyperfyNode = node
+    this.scene.add(splatMesh)
+
+    // Store reference
+    const id = node.id || `splat_${Date.now()}`
+    this.splatMeshes.set(id, splatMesh)
+
+    // Apply color/opacity - use already imported THREE
+    if (color && color !== '#ffffff') {
+      const colorObj = new THREE.Color(color)
+      splatMesh.recolor.set(colorObj.r, colorObj.g, colorObj.b)
+    }
+    if (opacity !== undefined && opacity !== 1.0) {
+      splatMesh.opacity = opacity
+    }
+
+    return id
+  }
+
+  // Helper: Create splat handle object
+  _createSplatHandle(splatMesh, { id, srcUrl, removeFromCache = false, loadInterval = null }) {
+    return {
+      splatMesh,
+      move: (newMatrix) => {
+        splatMesh.matrix.copy(newMatrix)
+        splatMesh.updateMatrixWorld(true)
+      },
+      updateColor: (newColor) => {
+        const colorObj = new THREE.Color(newColor)
+        splatMesh.recolor.set(colorObj.r, colorObj.g, colorObj.b)
+      },
+      updateOpacity: (newOpacity) => {
+        splatMesh.opacity = newOpacity
+      },
+      updateSplatScale: (newScale) => {
+        splatMesh.scale.setScalar(newScale)
+      },
+      updateLodRenderScale: (newLodRenderScale) => {
+        if (splatMesh.lodRenderScale !== undefined) {
+          splatMesh.lodRenderScale = newLodRenderScale
+        }
+      },
+      destroy: () => {
+        // Clean up SOGS load interval if exists
+        if (loadInterval) {
+          clearInterval(loadInterval)
+        }
+        this.scene.remove(splatMesh)
+        this.splatMeshes.delete(id)
+        splatMesh.dispose?.()
+        if (removeFromCache && srcUrl) {
+          this.world.loader.remove('splat', srcUrl)
+        }
+      }
+    }
+  }
+
   async insertGaussianSplat({ url, node, matrix, color = '#ffffff', opacity = 1.0, splatScale = 1.0, lodRenderScale = 1.0 }) {
     // Only create SplatMesh on client
     if (this.world.network.isServer) {
@@ -351,8 +426,7 @@ export class Stage extends System {
       // Dynamically import Spark.js only on client
       const { SplatMesh, SparkRenderer } = await import('@sparkjsdev/spark')
 
-      // Create SparkRenderer and attach to camera for float16 precision fix
-      // This prevents line patterns/quantization artifacts with small position values
+      // Create SparkRenderer singleton and attach to camera for float16 precision fix
       if (!sparkRendererInstance && this.world.camera && this.world.graphics?.renderer) {
         sparkRendererInstance = new SparkRenderer({
           renderer: this.world.graphics.renderer
@@ -360,187 +434,47 @@ export class Stage extends System {
         this.world.camera.add(sparkRendererInstance)
 
         // Reduce maxStdDev on mobile/Quest for better performance
-        // Default is ~2.8 (sqrt(8)), lower = smaller splats = faster rendering
         const tier = getDevicePerformanceTier()
         if (tier === 'quest') {
-          sparkRendererInstance.maxStdDev = 1.8 // Very aggressive for VR
+          sparkRendererInstance.maxStdDev = 1.8
         } else if (tier === 'mobile') {
-          sparkRendererInstance.maxStdDev = 1.5 // Very aggressive for mobile
+          sparkRendererInstance.maxStdDev = 1.5
         }
         console.log(`✅ SparkRenderer attached (tier: ${tier}, maxStdDev: ${sparkRendererInstance.maxStdDev}, lodScale: ${getDefaultLodRenderScale()})`)
       }
 
-      // Detect file type from original source URL first
-      let fileType = null
+      // Detect file type from source URL
       const srcUrl = node._src || url
+      const ext = srcUrl?.split('.').pop()?.toLowerCase()
 
-      if (srcUrl) {
-        const ext = srcUrl.split('.').pop()?.toLowerCase()
+      let fileType = null
+      if (ext === 'ksplat' || ext === 'splat') fileType = ext
+      else if (ext === 'ply') fileType = 'ply'
+      else if (ext === 'sog' || ext === 'sogs' || ext === 'zip') fileType = 'pcsogs'
+      else if (ext === 'sogsz' || ext === 'sogszip') fileType = 'pcsogszip'
 
-        if (ext === 'ksplat' || ext === 'splat') {
-          fileType = ext
-        } else if (ext === 'spz') {
-          fileType = null  // SPZ format is auto-detected by Spark.js
-        } else if (ext === 'ply') {
-          fileType = 'ply'
-        } else if (ext === 'sog' || ext === 'sogs') {
-          fileType = 'pcsogs'
-        } else if (ext === 'zip') {
-          fileType = 'pcsogs'  // ZIP files with splat data - treat as SOGS
-        } else if (ext === 'sogsz' || ext === 'sogszip') {
-          fileType = 'pcsogszip'  // Alternative SOGS ZIP extensions
-        }
-      }
+      const isSOGS = fileType === 'pcsogs' || fileType === 'pcsogszip'
+      const setupOptions = { node, matrix, color, opacity, splatScale, lodRenderScale }
 
-      // Determine the URL to use for loading
-      let actualUrl = url
-      const isSPZ = srcUrl && srcUrl.split('.').pop()?.toLowerCase() === 'spz'
-      const ext = srcUrl && srcUrl.split('.').pop()?.toLowerCase()
-      const isSOGS = fileType === 'pcsogs' || fileType === 'pcsogszip' || ext === 'zip' || ext === 'sog' || ext === 'sogs'
-
-      if (isSPZ) {
-        // Load via Hyperfy's standard asset system
-        let splatData = this.world.loader.get('splat', srcUrl)
-        if (!splatData) {
-          splatData = await this.world.loader.load('splat', srcUrl)
-        }
-
-        // Create SplatMesh via Spark's native handling
-        const spzSplatMesh = await splatData.createSplatMesh()
-
-        // Apply LOD render scale
-        if (spzSplatMesh.lodRenderScale !== undefined) {
-          spzSplatMesh.lodRenderScale = lodRenderScale || getDefaultLodRenderScale()
-        }
-
-        // Apply user scale
-        if (splatScale && splatScale !== 1.0) {
-          spzSplatMesh.scale.setScalar(splatScale)
-        }
-
-        // Apply transform
-        spzSplatMesh.matrix.copy(matrix)
-        spzSplatMesh.matrixAutoUpdate = false
-        spzSplatMesh.updateMatrixWorld(true)
-
-        // Add to scene
-        // Store node reference for raycasting
-        spzSplatMesh._hyperfyNode = node
-        this.scene.add(spzSplatMesh)
-
-        // Store reference
-        const id = node.id || `splat_${Date.now()}`
-        this.splatMeshes.set(id, spzSplatMesh)
-
-        // Apply color/opacity modifications using direct SplatMesh properties
-        const splatProperties = {
-          color: color,
-          opacity: opacity
-        }
-
-        try {
-          const THREE = await import('three')
-
-          // Apply initial color using SplatMesh.recolor property
-          if (color && color !== '#ffffff') {
-            const colorObj = new THREE.Color(color)
-            spzSplatMesh.recolor.set(colorObj.r, colorObj.g, colorObj.b)
-          }
-
-        // Apply initial opacity using SplatMesh.opacity property
-        if (opacity !== undefined && opacity !== 1.0) {
-          spzSplatMesh.opacity = opacity
-        }
-
-        } catch (error) {
-          console.warn('⚠️ Failed to apply initial splat properties:', error.message)
-        }
-
-        // Raycasting is handled via Three.js standard raycasting in _raycastSplatMeshes()
-
-        // Return handle with update methods
-        return {
-          splatMesh: spzSplatMesh,
-          move: (newMatrix) => {
-            spzSplatMesh.matrix.copy(newMatrix)
-            spzSplatMesh.updateMatrixWorld(true)
-          },
-          updateColor: async (newColor) => {
-            splatProperties.color = newColor
-            try {
-              const THREE = await import('three')
-              const colorObj = new THREE.Color(newColor)
-              spzSplatMesh.recolor.set(colorObj.r, colorObj.g, colorObj.b)
-            } catch (error) {
-              console.warn('⚠️ Failed to update color:', error)
-            }
-          },
-          updateOpacity: async (newOpacity) => {
-            splatProperties.opacity = newOpacity
-            try {
-              spzSplatMesh.opacity = newOpacity
-            } catch (error) {
-              console.warn('⚠️ Failed to update opacity:', error)
-            }
-          },
-          updateSplatScale: async (newScale) => {
-            try {
-              console.log('🔧 Updating SPZ splat scale:', newScale)
-              spzSplatMesh.scale.setScalar(newScale)
-            } catch (error) {
-              console.warn('⚠️ Failed to update splat scale:', error)
-            }
-          },
-          updateLodRenderScale: (newLodRenderScale) => {
-            if (spzSplatMesh.lodRenderScale !== undefined) {
-              spzSplatMesh.lodRenderScale = newLodRenderScale
-            }
-          },
-          destroy: () => {
-            this.scene.remove(spzSplatMesh)
-            this.splatMeshes.delete(id)
-            spzSplatMesh.dispose?.()
-            // Remove from loader cache to prevent reappearing after restart
-            this.world.loader.remove('splat', srcUrl)
-          }
-        }
-      } else if (isSOGS) {
-        // SOGS/ZIP files: Use URL approach because they need to be unzipped by Spark.js
-        const sogsSplatMesh = new SplatMesh({
-          url: actualUrl,
+      // SOGS/ZIP: Use URL-based loading (Spark.js handles decompression)
+      if (isSOGS) {
+        const splatMesh = new SplatMesh({
+          url: url,
           fileType: fileType,
           lodRenderScale: lodRenderScale || getDefaultLodRenderScale()
         })
 
-        // Apply transform
-        sogsSplatMesh.matrix.copy(matrix)
-        sogsSplatMesh.matrixAutoUpdate = false
-        sogsSplatMesh.updateMatrixWorld(true)
+        const id = this._setupSplatMesh(splatMesh, setupOptions)
 
-        // Add to scene
-        // Store node reference for raycasting
-        sogsSplatMesh._hyperfyNode = node
-        this.scene.add(sogsSplatMesh)
-
-        // Store reference
-        const id = node.id || `splat_${Date.now()}`
-        this.splatMeshes.set(id, sogsSplatMesh)
-
-        // Monitor loading progress for SOGS files
-        let loadCheckCount = 0
-        const checkSOGSLoaded = () => {
-          if (sogsSplatMesh.numSplats > 0 || sogsSplatMesh.isInitialized === true) {
-            return true
-          }
-          return false
-        }
-
-        // Set up periodic check for SOGS loading
-        if (!checkSOGSLoaded()) {
-          const sogsLoadInterval = setInterval(() => {
+        // Monitor SOGS loading with cleanup on destroy
+        let loadInterval = null
+        if (!splatMesh.isInitialized) {
+          let loadCheckCount = 0
+          loadInterval = setInterval(() => {
             loadCheckCount++
-            if (checkSOGSLoaded() || loadCheckCount >= 30) { // 60 seconds max
-              clearInterval(sogsLoadInterval)
+            if (splatMesh.numSplats > 0 || splatMesh.isInitialized || loadCheckCount >= 30) {
+              clearInterval(loadInterval)
+              loadInterval = null
               if (loadCheckCount >= 30) {
                 console.warn('⚠️ SOGS loading timeout - file may be corrupted or too large')
               }
@@ -548,163 +482,21 @@ export class Stage extends System {
           }, 2000)
         }
 
-        // Apply color/opacity modifications using direct SplatMesh properties
-        try {
-          const THREE = await import('three')
-
-          // Apply initial color using SplatMesh.recolor property
-          if (color && color !== '#ffffff') {
-            const colorObj = new THREE.Color(color)
-            sogsSplatMesh.recolor.set(colorObj.r, colorObj.g, colorObj.b)
-          }
-
-          // Apply initial opacity using SplatMesh.opacity property
-          if (opacity !== undefined && opacity !== 1.0) {
-            sogsSplatMesh.opacity = opacity
-          }
-
-
-        } catch (error) {
-          console.warn('⚠️ Failed to apply initial splat properties:', error.message)
-        }
-
-        // Raycasting is handled via Three.js standard raycasting in _raycastSplatMeshes()
-
-        // Return handle with update methods
-        return {
-          splatMesh: sogsSplatMesh,
-          move: (newMatrix) => {
-            sogsSplatMesh.matrix.copy(newMatrix)
-            sogsSplatMesh.updateMatrixWorld(true)
-          },
-          updateColor: async (newColor) => {
-            try {
-              const THREE = await import('three')
-              const colorObj = new THREE.Color(newColor)
-              sogsSplatMesh.recolor.set(colorObj.r, colorObj.g, colorObj.b)
-            } catch (error) {
-              console.warn('⚠️ Failed to update color:', error)
-            }
-          },
-          updateOpacity: async (newOpacity) => {
-            try {
-              sogsSplatMesh.opacity = newOpacity
-            } catch (error) {
-              console.warn('⚠️ Failed to update opacity:', error)
-            }
-          },
-          updateLodRenderScale: (newLodRenderScale) => {
-            if (sogsSplatMesh.lodRenderScale !== undefined) {
-              sogsSplatMesh.lodRenderScale = newLodRenderScale
-            }
-          },
-          destroy: () => {
-            this.scene.remove(sogsSplatMesh)
-            this.splatMeshes.delete(id)
-            sogsSplatMesh.dispose?.()
-          }
-        }
-      } else {
-        // All other formats (PLY, splat, ksplat, etc.): Use Spark.js native
-
-        let splatData = this.world.loader.get('splat', srcUrl)
-        if (!splatData) {
-          splatData = await this.world.loader.load('splat', srcUrl)
-        }
-
-        // Create SplatMesh via Spark's native handling
-        const otherSplatMesh = await splatData.createSplatMesh()
-
-        // Apply LOD render scale
-        if (otherSplatMesh.lodRenderScale !== undefined) {
-          otherSplatMesh.lodRenderScale = lodRenderScale || getDefaultLodRenderScale()
-        }
-
-        // Apply user scale
-        if (splatScale && splatScale !== 1.0) {
-          otherSplatMesh.scale.setScalar(splatScale)
-        }
-
-        // Apply transform
-        otherSplatMesh.matrix.copy(matrix)
-        otherSplatMesh.matrixAutoUpdate = false
-        otherSplatMesh.updateMatrixWorld(true)
-
-        // Add to scene
-        // Store node reference for raycasting
-        otherSplatMesh._hyperfyNode = node
-        this.scene.add(otherSplatMesh)
-
-        const id = node.id || `splat_${Date.now()}`
-        this.splatMeshes.set(id, otherSplatMesh)
-
-        // Apply color/opacity modifications using direct SplatMesh properties
-        const splatProperties = {
-          color: color,
-          opacity: opacity
-        }
-
-        try {
-          const THREE = await import('three')
-
-          // Apply initial color using SplatMesh.recolor property
-          if (color && color !== '#ffffff') {
-            const colorObj = new THREE.Color(color)
-            otherSplatMesh.recolor.set(colorObj.r, colorObj.g, colorObj.b)
-          }
-
-          // Apply initial opacity using SplatMesh.opacity property
-          if (opacity !== undefined && opacity !== 1.0) {
-            otherSplatMesh.opacity = opacity
-          }
-        } catch (error) {
-          console.warn('⚠️ Failed to apply initial splat properties:', error.message)
-        }
-
-        // Raycasting is handled via Three.js standard raycasting in _raycastSplatMeshes()
-
-        // Return handle with update methods
-        return {
-          splatMesh: otherSplatMesh,
-          move: (newMatrix) => {
-            otherSplatMesh.matrix.copy(newMatrix)
-            otherSplatMesh.updateMatrixWorld(true)
-          },
-          updateColor: async (newColor) => {
-            splatProperties.color = newColor
-            try {
-              const THREE = await import('three')
-              const colorObj = new THREE.Color(newColor)
-              otherSplatMesh.recolor.set(colorObj.r, colorObj.g, colorObj.b)
-            } catch (error) {
-              console.warn('⚠️ Failed to update color:', error)
-            }
-          },
-          updateOpacity: async (newOpacity) => {
-            splatProperties.opacity = newOpacity
-            try {
-              otherSplatMesh.opacity = newOpacity
-            } catch (error) {
-              console.warn('⚠️ Failed to update opacity:', error)
-            }
-          },
-          updateLodRenderScale: (newLodRenderScale) => {
-            if (otherSplatMesh.lodRenderScale !== undefined) {
-              otherSplatMesh.lodRenderScale = newLodRenderScale
-            }
-          },
-          destroy: () => {
-            this.scene.remove(otherSplatMesh)
-            this.splatMeshes.delete(id)
-            otherSplatMesh.dispose?.()
-            // Remove from loader cache to prevent reappearing after restart
-            this.world.loader.remove('splat', srcUrl)
-          }
-        }
+        return this._createSplatHandle(splatMesh, { id, srcUrl: null, loadInterval })
       }
 
+      // All other formats: Load via Hyperfy's asset system
+      let splatData = this.world.loader.get('splat', srcUrl)
+      if (!splatData) {
+        splatData = await this.world.loader.load('splat', srcUrl)
+      }
+
+      const splatMesh = await splatData.createSplatMesh()
+      const id = this._setupSplatMesh(splatMesh, setupOptions)
+
+      return this._createSplatHandle(splatMesh, { id, srcUrl, removeFromCache: true })
+
     } catch (error) {
-      // eslint-disable-next-line no-console
       console.error('❌ SplatMesh creation failed:', error)
       return null
     }
