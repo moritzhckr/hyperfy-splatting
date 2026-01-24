@@ -12,6 +12,7 @@ import { TextureLoader } from 'three'
 import { formatBytes } from '../extras/formatBytes'
 import { emoteUrls } from '../extras/playerEmotes'
 import Hls from 'hls.js/dist/hls.js'
+import { createStreamingSplatMesh } from '../extras/StreamingSplatLoader'
 
 // THREE.Cache.enabled = true
 
@@ -415,30 +416,109 @@ export class ClientLoader extends System {
           return splatData
         }
 
-        // For other formats: Use fileBytes approach (same as SPZ but without compression handling)
+        // For PLY: Support streaming mode for progressive loading
+        if (format === 'ply') {
+          console.log('🔵 [ClientLoader] Using PLY loading path (streaming available)')
+
+          // Pre-load fileBytes for non-streaming fallback
+          const fileBytes = await file.arrayBuffer()
+
+          const createSplatMesh = async (options = {}) => {
+            const { streaming = false, onProgress, onBatch, onMeshReady } = options
+
+            // STREAMING MODE: Progressive loading with live rendering
+            if (streaming) {
+              console.log('🌊 [ClientLoader PLY] Using STREAMING mode')
+              try {
+                // Use already-loaded fileBytes (File stream can only be read once)
+                const mesh = await createStreamingSplatMesh({
+                  fileBytes: fileBytes,  // Pass bytes, not file object
+                  maxSplats: 2000000,
+                  onProgress,
+                  onBatch,
+                  onMeshReady  // Allow adding to scene before fully loaded
+                })
+                console.log('✅ [ClientLoader PLY] Streaming complete! numSplats:', mesh.numSplats)
+                return mesh
+              } catch (error) {
+                console.warn('⚠️ [ClientLoader PLY] Streaming failed, falling back to standard load:', error)
+                // Fall through to standard loading
+              }
+            }
+
+            // STANDARD MODE: Load all at once (fallback)
+            const { SplatMesh } = await import('@sparkjsdev/spark')
+
+            console.log('🔧 [ClientLoader PLY] Using STANDARD mode')
+            console.log('   fileBytes length:', fileBytes.byteLength)
+
+            const blob = new Blob([fileBytes], { type: 'application/octet-stream' })
+            const blobUrl = URL.createObjectURL(blob)
+
+            return new Promise((resolve, reject) => {
+              const splatMeshOptions = {
+                url: blobUrl,
+                fileType: format,
+                onLoad: (mesh) => {
+                  console.log('✅ [ClientLoader PLY] onLoad fired! numSplats:', mesh.numSplats)
+                  URL.revokeObjectURL(blobUrl)
+                  resolve(mesh)
+                },
+                ...options
+              }
+
+              try {
+                const splatMesh = new SplatMesh(splatMeshOptions)
+                setTimeout(() => {
+                  if (splatMesh.numSplats === 0 && !splatMesh.isInitialized) {
+                    console.warn('⚠️ [ClientLoader PLY] onLoad not called after 10s')
+                    URL.revokeObjectURL(blobUrl)
+                    resolve(splatMesh)
+                  }
+                }, 10000)
+              } catch (error) {
+                console.error('❌ [ClientLoader PLY] Failed:', error)
+                URL.revokeObjectURL(blobUrl)
+                reject(error)
+              }
+            })
+          }
+
+          const splatData = {
+            file,
+            url,
+            fileBytes,
+            size: file.size,
+            format,
+            createSplatMesh,
+            supportsStreaming: true, // Flag for UI
+            getStats() {
+              return { fileBytes: file.size, format }
+            }
+          }
+          this.results.set(key, splatData)
+          return splatData
+        }
+
+        // For other formats (splat, ksplat, etc.): Use standard fileBytes approach
         const fileBytes = await file.arrayBuffer()
 
         const createSplatMesh = async (options = {}) => {
           const { SplatMesh } = await import('@sparkjsdev/spark')
 
-          console.log('🔧 [ClientLoader PLY] Creating SplatMesh with fileBytes approach')
+          console.log('🔧 [ClientLoader OTHER] Creating SplatMesh')
           console.log('   fileBytes length:', fileBytes.byteLength)
           console.log('   format:', format)
 
-          // Convert fileBytes to Blob URL - onLoad callback works better with URLs
           const blob = new Blob([fileBytes], { type: 'application/octet-stream' })
           const blobUrl = URL.createObjectURL(blob)
-          console.log('   Created blob URL:', blobUrl)
 
-          // Wrap onLoad callback in a Promise to wait for loading
           return new Promise((resolve, reject) => {
             const splatMeshOptions = {
-              url: blobUrl,  // Use URL instead of fileBytes
+              url: blobUrl,
               fileType: format,
-              // No scale override - use default
               onLoad: (mesh) => {
-                console.log('✅ [ClientLoader PLY] onLoad callback fired! numSplats:', mesh.numSplats)
-                // Clean up blob URL
+                console.log('✅ [ClientLoader OTHER] onLoad fired! numSplats:', mesh.numSplats)
                 URL.revokeObjectURL(blobUrl)
                 resolve(mesh)
               },
@@ -446,20 +526,16 @@ export class ClientLoader extends System {
             }
 
             try {
-              console.log('   Creating SplatMesh...')
               const splatMesh = new SplatMesh(splatMeshOptions)
-              console.log('   SplatMesh created, waiting for onLoad...')
-
-              // Safety timeout - if onLoad doesn't fire in 10 seconds, something is wrong
               setTimeout(() => {
                 if (splatMesh.numSplats === 0 && !splatMesh.isInitialized) {
-                  console.warn('⚠️ [ClientLoader PLY] onLoad not called after 10s, resolving anyway')
+                  console.warn('⚠️ [ClientLoader OTHER] onLoad not called after 10s')
                   URL.revokeObjectURL(blobUrl)
                   resolve(splatMesh)
                 }
               }, 10000)
             } catch (error) {
-              console.error('❌ [ClientLoader PLY] SplatMesh creation failed:', error)
+              console.error('❌ [ClientLoader OTHER] Failed:', error)
               URL.revokeObjectURL(blobUrl)
               reject(error)
             }
@@ -474,10 +550,7 @@ export class ClientLoader extends System {
           format,
           createSplatMesh,
           getStats() {
-            return {
-              fileBytes: file.size,
-              format
-            }
+            return { fileBytes: file.size, format }
           }
         }
         this.results.set(key, splatData)

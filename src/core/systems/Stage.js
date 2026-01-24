@@ -25,8 +25,8 @@ const getDevicePerformanceTier = () => {
 const getDefaultLodRenderScale = () => {
   const tier = getDevicePerformanceTier()
   switch (tier) {
-    case 'quest': return 4.0    // Very aggressive LOD for Quest
-    case 'mobile': return 3.0   // Aggressive LOD for mobile
+    case 'quest': return 6.0    // Very aggressive LOD for Quest
+    case 'mobile': return 5.0   // Very aggressive LOD for mobile
     default: return 1.0         // Normal LOD for desktop
   }
 }
@@ -362,14 +362,14 @@ export class Stage extends System {
         this.world.camera.add(sparkRendererInstance)
 
         // Reduce maxStdDev on mobile/Quest for better performance
-        // Default is ~2.8, Quest recommends Math.sqrt(5) ≈ 2.236
+        // Default is ~2.8 (sqrt(8)), lower = smaller splats = faster rendering
         const tier = getDevicePerformanceTier()
         if (tier === 'quest') {
-          sparkRendererInstance.maxStdDev = Math.sqrt(5) // ~2.236 for VR
+          sparkRendererInstance.maxStdDev = 1.8 // Very aggressive for VR
         } else if (tier === 'mobile') {
-          sparkRendererInstance.maxStdDev = 2.0 // More aggressive for mobile
+          sparkRendererInstance.maxStdDev = 1.5 // Very aggressive for mobile
         }
-        console.log(`✅ SparkRenderer attached (tier: ${tier}, maxStdDev: ${sparkRendererInstance.maxStdDev})`)
+        console.log(`✅ SparkRenderer attached (tier: ${tier}, maxStdDev: ${sparkRendererInstance.maxStdDev}, lodScale: ${getDefaultLodRenderScale()})`)
       }
 
       // Detect file type from original source URL first
@@ -610,30 +610,58 @@ export class Stage extends System {
           splatData = await this.world.loader.load('splat', srcUrl)
         }
 
-        // Create SplatMesh via fileBytes factory method
-        const otherSplatMesh = await splatData.createSplatMesh()
+        // Check if this format supports streaming (currently PLY)
+        const useStreaming = splatData.supportsStreaming && splatData.format === 'ply'
 
-        // Apply LOD render scale - use device-based default if not specified
-        if (otherSplatMesh.lodRenderScale !== undefined) {
-          otherSplatMesh.lodRenderScale = lodRenderScale || getDefaultLodRenderScale()
-        }
-
-        // Apply user scale
-        if (splatScale && splatScale !== 1.0) {
-          otherSplatMesh.scale.setScalar(splatScale)
-        }
-
-        // Apply transform
-        otherSplatMesh.matrix.copy(matrix)
-        otherSplatMesh.matrixAutoUpdate = false
-        otherSplatMesh.updateMatrixWorld(true)
-
-        // Add to scene
-        this.scene.add(otherSplatMesh)
-
-        // Store reference
+        // Store reference for mesh (will be set in onMeshReady or after createSplatMesh)
+        let otherSplatMesh = null
         const id = node.id || `splat_${Date.now()}`
-        this.splatMeshes.set(id, otherSplatMesh)
+
+        // Helper to setup mesh once it's ready
+        const setupMesh = (mesh) => {
+          // Apply LOD render scale
+          if (mesh.lodRenderScale !== undefined) {
+            mesh.lodRenderScale = lodRenderScale || getDefaultLodRenderScale()
+          }
+
+          // Apply user scale
+          if (splatScale && splatScale !== 1.0) {
+            mesh.scale.setScalar(splatScale)
+          }
+
+          // Apply transform
+          mesh.matrix.copy(matrix)
+          mesh.matrixAutoUpdate = false
+          mesh.updateMatrixWorld(true)
+
+          // Add to scene IMMEDIATELY for progressive rendering
+          this.scene.add(mesh)
+          this.splatMeshes.set(id, mesh)
+
+          console.log('🌊 [Stage] Mesh added to scene for progressive rendering')
+        }
+
+        // Create SplatMesh - use streaming for PLY files
+        otherSplatMesh = await splatData.createSplatMesh({
+          streaming: useStreaming,
+          onProgress: useStreaming ? (loaded, total) => {
+            const pct = Math.round(loaded / total * 100)
+            if (pct % 10 === 0) console.log(`🌊 [Stage] Streaming: ${pct}%`)
+          } : undefined,
+          onBatch: useStreaming ? (splatsLoaded, totalSplats) => {
+            // Mesh updates automatically via needsUpdate flag
+          } : undefined,
+          // PROGRESSIVE RENDERING: Add mesh to scene BEFORE fully loaded
+          onMeshReady: useStreaming ? (mesh) => {
+            otherSplatMesh = mesh
+            setupMesh(mesh)
+          } : undefined
+        })
+
+        // For non-streaming, setup mesh after it's fully loaded
+        if (!useStreaming) {
+          setupMesh(otherSplatMesh)
+        }
 
         // Apply color/opacity modifications using direct SplatMesh properties
         const splatProperties = {
@@ -654,8 +682,6 @@ export class Stage extends System {
           if (opacity !== undefined && opacity !== 1.0) {
             otherSplatMesh.opacity = opacity
           }
-
-
         } catch (error) {
           console.warn('⚠️ Failed to apply initial splat properties:', error.message)
         }
