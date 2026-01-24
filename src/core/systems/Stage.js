@@ -401,16 +401,16 @@ export class Stage extends System {
       const isSOGS = fileType === 'pcsogs' || fileType === 'pcsogszip' || ext === 'zip' || ext === 'sog' || ext === 'sogs'
 
       if (isSPZ) {
-        // Load via Hyperfy's standard asset system with fileBytes
+        // Load via Hyperfy's standard asset system
         let splatData = this.world.loader.get('splat', srcUrl)
         if (!splatData) {
           splatData = await this.world.loader.load('splat', srcUrl)
         }
 
-        // Create SplatMesh via fileBytes factory method
+        // Create SplatMesh via Spark's native handling
         const spzSplatMesh = await splatData.createSplatMesh()
 
-        // Apply LOD render scale - use device-based default if not specified
+        // Apply LOD render scale
         if (spzSplatMesh.lodRenderScale !== undefined) {
           spzSplatMesh.lodRenderScale = lodRenderScale || getDefaultLodRenderScale()
         }
@@ -602,66 +602,36 @@ export class Stage extends System {
           }
         }
       } else {
-        // All other formats: Use Hyperfy's standard asset loading system
+        // All other formats (PLY, splat, ksplat, etc.): Use Spark.js native
 
-        // Load via Hyperfy's standard asset system with fileBytes
         let splatData = this.world.loader.get('splat', srcUrl)
         if (!splatData) {
           splatData = await this.world.loader.load('splat', srcUrl)
         }
 
-        // Check if this format supports streaming (currently PLY)
-        const useStreaming = splatData.supportsStreaming && splatData.format === 'ply'
+        // Create SplatMesh via Spark's native handling
+        const otherSplatMesh = await splatData.createSplatMesh()
 
-        // Store reference for mesh (will be set in onMeshReady or after createSplatMesh)
-        let otherSplatMesh = null
+        // Apply LOD render scale
+        if (otherSplatMesh.lodRenderScale !== undefined) {
+          otherSplatMesh.lodRenderScale = lodRenderScale || getDefaultLodRenderScale()
+        }
+
+        // Apply user scale
+        if (splatScale && splatScale !== 1.0) {
+          otherSplatMesh.scale.setScalar(splatScale)
+        }
+
+        // Apply transform
+        otherSplatMesh.matrix.copy(matrix)
+        otherSplatMesh.matrixAutoUpdate = false
+        otherSplatMesh.updateMatrixWorld(true)
+
+        // Add to scene
+        this.scene.add(otherSplatMesh)
+
         const id = node.id || `splat_${Date.now()}`
-
-        // Helper to setup mesh once it's ready
-        const setupMesh = (mesh) => {
-          // Apply LOD render scale
-          if (mesh.lodRenderScale !== undefined) {
-            mesh.lodRenderScale = lodRenderScale || getDefaultLodRenderScale()
-          }
-
-          // Apply user scale
-          if (splatScale && splatScale !== 1.0) {
-            mesh.scale.setScalar(splatScale)
-          }
-
-          // Apply transform
-          mesh.matrix.copy(matrix)
-          mesh.matrixAutoUpdate = false
-          mesh.updateMatrixWorld(true)
-
-          // Add to scene IMMEDIATELY for progressive rendering
-          this.scene.add(mesh)
-          this.splatMeshes.set(id, mesh)
-
-          console.log('🌊 [Stage] Mesh added to scene for progressive rendering')
-        }
-
-        // Create SplatMesh - use streaming for PLY files
-        otherSplatMesh = await splatData.createSplatMesh({
-          streaming: useStreaming,
-          onProgress: useStreaming ? (loaded, total) => {
-            const pct = Math.round(loaded / total * 100)
-            if (pct % 10 === 0) console.log(`🌊 [Stage] Streaming: ${pct}%`)
-          } : undefined,
-          onBatch: useStreaming ? (splatsLoaded, totalSplats) => {
-            // Mesh updates automatically via needsUpdate flag
-          } : undefined,
-          // PROGRESSIVE RENDERING: Add mesh to scene BEFORE fully loaded
-          onMeshReady: useStreaming ? (mesh) => {
-            otherSplatMesh = mesh
-            setupMesh(mesh)
-          } : undefined
-        })
-
-        // For non-streaming, setup mesh after it's fully loaded
-        if (!useStreaming) {
-          setupMesh(otherSplatMesh)
-        }
+        this.splatMeshes.set(id, otherSplatMesh)
 
         // Apply color/opacity modifications using direct SplatMesh properties
         const splatProperties = {
