@@ -31,26 +31,28 @@ After each phase, verify:
 
 ## Phase 1: Critical Code Smells (High Priority)
 
-### 1.1 Extract Duplicated Code in Stage.js
-- [ ] Create `createSplatHandle()` helper function
-- [ ] Unify SPZ/SOGS/Other format handling into single code path
-- [ ] Extract common handle methods (move, updateColor, updateOpacity, destroy)
-- [ ] Remove ~200 lines of duplicated code
+### 1.1 Extract Duplicated Code in Stage.js ✅
+- [x] Create `_createSplatHandle()` helper function
+- [x] Create `_setupSplatMesh()` helper function
+- [x] Unify SPZ/SOGS/Other format handling into single code path
+- [x] Extract common handle methods (move, updateColor, updateOpacity, destroy)
+- [x] Remove ~200 lines of duplicated code (370 → 170 lines)
 
-**Files:** `src/core/systems/Stage.js:340-711`
+**Commit:** `cd86423`
 
-### 1.2 Remove Unnecessary THREE.js Re-imports
-- [ ] Remove `await import('three')` calls inside `insertGaussianSplat`
-- [ ] Use already imported THREE from line 1
+### 1.2 Remove Unnecessary THREE.js Re-imports ✅
+- [x] Remove `await import('three')` calls inside `insertGaussianSplat`
+- [x] Use already imported THREE from line 1
 
-**Files:** `src/core/systems/Stage.js:442, 471, 553, 582, 648, 676`
+**Commit:** `cd86423` (combined with 1.1)
 
-### 1.3 Fix sortMode Parameter
-- [ ] Add `sortMode` to `insertGaussianSplat` destructured parameters
-- [ ] Pass sortMode to SplatMesh if supported by Spark.js
-- [ ] Or remove from GaussianSplat.js if not applicable
+### 1.3 Fix sortMode Parameter ✅
+- [x] Check if Spark.js SplatMesh supports sortMode → **NOT SUPPORTED**
+- [x] Remove sortMode from insertGaussianSplat call
+- [x] Add deprecation comments (kept for backwards compatibility)
+- [x] Remove unused pendingHandle property
 
-**Files:** `src/core/systems/Stage.js:340`, `src/core/nodes/GaussianSplat.js:153`
+**Commit:** `f56cbef`
 
 ---
 
@@ -215,7 +217,7 @@ const SPLAT_BUDGETS = {
 
 | Phase | Status | Progress |
 |-------|--------|----------|
-| Phase 1: Critical | 🔄 In Progress | 0/3 |
+| Phase 1: Critical | ✅ Done | 3/3 |
 | Phase 2: Architecture | ⏳ Pending | 0/4 |
 | Phase 3: Memory | ⏳ Pending | 0/3 |
 | Phase 4: Features | ⏳ Pending | 0/4 |
@@ -228,9 +230,9 @@ const SPLAT_BUDGETS = {
 
 | Commit | Phase | Description |
 |--------|-------|-------------|
-| (pending) | 1.1 | refactor: extract duplicated splat handle code |
-| (pending) | 1.2 | fix: remove unnecessary THREE re-imports |
-| (pending) | 1.3 | fix: add sortMode parameter to insertGaussianSplat |
+| `7fecc99` | 6 | docs: add refactoring plan and update implementation docs |
+| `cd86423` | 1.1+1.2 | refactor: extract duplicated splat handle code (-208 lines) |
+| `f56cbef` | 1.3 | fix: remove unused sortMode parameter and pendingHandle |
 
 ---
 
