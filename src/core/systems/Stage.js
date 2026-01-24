@@ -254,6 +254,10 @@ export class Stage extends System {
     this.raycaster.far = max
     this.raycastHits.length = 0
     this.octree.raycast(this.raycaster, this.raycastHits)
+
+    // Also raycast against SplatMeshes using Three.js standard raycasting
+    this._raycastSplatMeshes(this.raycaster, this.raycastHits)
+
     return this.raycastHits
   }
 
@@ -267,75 +271,67 @@ export class Stage extends System {
     this.raycaster.far = max
     this.raycastHits.length = 0
     this.octree.raycast(this.raycaster, this.raycastHits)
+
+    // Also raycast against SplatMeshes using Three.js standard raycasting
+    this._raycastSplatMeshes(this.raycaster, this.raycastHits)
+
     return this.raycastHits
   }
 
-  // Helper function to apply color/opacity to splat meshes and create common handlers
-  async createSplatMeshHandlers(splatMesh, matrix, color, opacity, node, srcUrl) {
-    const id = node.id || `splat_${Date.now()}`
+  // Raycast against SplatMeshes - optimized with bounding box pre-check
+  _raycastSplatMeshes(raycaster, hits) {
+    if (this.splatMeshes.size === 0) return
 
-    // Apply transform
-    splatMesh.matrix.copy(matrix)
-    splatMesh.matrixAutoUpdate = false
-    splatMesh.updateMatrixWorld(true)
+    // Quick bounding box check first, then only do full raycast on candidates
+    const candidates = []
 
-    // Add to scene
-    this.scene.add(splatMesh)
+    for (const [id, splatMesh] of this.splatMeshes) {
+      // Skip if not initialized
+      if (!splatMesh.isInitialized) continue
 
-    // Store reference
-    this.splatMeshes.set(id, splatMesh)
-
-    // Apply color/opacity modifications using direct SplatMesh properties
-    try {
-      const THREE = await import('three')
-
-      // Apply initial color using SplatMesh.recolor property
-      if (color && color !== '#ffffff') {
-        const colorObj = new THREE.Color(color)
-        splatMesh.recolor.set(colorObj.r, colorObj.g, colorObj.b)
+      // Get or compute bounding box (cached on mesh)
+      if (!splatMesh._hyperfyBBox) {
+        try {
+          splatMesh._hyperfyBBox = splatMesh.getBoundingBox ? splatMesh.getBoundingBox() : null
+        } catch (e) {
+          splatMesh._hyperfyBBox = null
+        }
       }
 
-      // Apply initial opacity using SplatMesh.opacity property
-      if (opacity !== undefined && opacity !== 1.0) {
-        splatMesh.opacity = opacity
+      // Quick bounding box intersection test
+      if (splatMesh._hyperfyBBox && !splatMesh._hyperfyBBox.isEmpty()) {
+        if (raycaster.ray.intersectsBox(splatMesh._hyperfyBBox)) {
+          candidates.push(splatMesh)
+        }
+      } else {
+        // No bounding box, include as candidate
+        candidates.push(splatMesh)
       }
-
-    } catch (error) {
-      console.warn('⚠️ Failed to apply initial splat properties:', error.message)
     }
 
-    // Return handle with update methods
-    return {
-      splatMesh,
-      move: (newMatrix) => {
-        splatMesh.matrix.copy(newMatrix)
-        splatMesh.updateMatrixWorld(true)
-      },
-      updateColor: async (newColor) => {
-        try {
-          const THREE = await import('three')
-          const colorObj = new THREE.Color(newColor)
-          splatMesh.recolor.set(colorObj.r, colorObj.g, colorObj.b)
-        } catch (error) {
-          console.warn('⚠️ Failed to update color:', error)
-        }
-      },
-      updateOpacity: async (newOpacity) => {
-        try {
-          splatMesh.opacity = newOpacity
-        } catch (error) {
-          console.warn('⚠️ Failed to update opacity:', error)
-        }
-      },
-      destroy: () => {
-        this.scene.remove(splatMesh)
-        this.splatMeshes.delete(id)
-        splatMesh.dispose?.()
-        // Remove from loader cache for SPZ files
-        if (srcUrl && srcUrl.split('.').pop()?.toLowerCase() === 'spz') {
-          this.world.loader.remove('splat', srcUrl)
-        }
+    // Only do expensive raycast on candidates that passed bounding box test
+    if (candidates.length === 0) return
+
+    // Use Spark's native raycast on each candidate
+    for (const splatMesh of candidates) {
+      const splatHits = []
+      splatMesh.raycast(raycaster, splatHits)
+
+      for (const hit of splatHits) {
+        const foundNode = splatMesh._hyperfyNode
+        hits.push({
+          distance: hit.distance,
+          point: hit.point,
+          node: foundNode,
+          getEntity: () => foundNode?.ctx?.entity,
+          object: splatMesh
+        })
       }
+    }
+
+    // Sort all hits by distance
+    if (hits.length > 1) {
+      hits.sort((a, b) => a.distance - b.distance)
     }
   }
 
@@ -426,6 +422,8 @@ export class Stage extends System {
         spzSplatMesh.updateMatrixWorld(true)
 
         // Add to scene
+        // Store node reference for raycasting
+        spzSplatMesh._hyperfyNode = node
         this.scene.add(spzSplatMesh)
 
         // Store reference
@@ -452,12 +450,11 @@ export class Stage extends System {
           spzSplatMesh.opacity = opacity
         }
 
-        // Precision fix is handled by 10x scale in ClientLoader + 0.1x compensation here
-
-
         } catch (error) {
           console.warn('⚠️ Failed to apply initial splat properties:', error.message)
         }
+
+        // Raycasting is handled via Three.js standard raycasting in _raycastSplatMeshes()
 
         // Return handle with update methods
         return {
@@ -519,6 +516,8 @@ export class Stage extends System {
         sogsSplatMesh.updateMatrixWorld(true)
 
         // Add to scene
+        // Store node reference for raycasting
+        sogsSplatMesh._hyperfyNode = node
         this.scene.add(sogsSplatMesh)
 
         // Store reference
@@ -566,6 +565,8 @@ export class Stage extends System {
         } catch (error) {
           console.warn('⚠️ Failed to apply initial splat properties:', error.message)
         }
+
+        // Raycasting is handled via Three.js standard raycasting in _raycastSplatMeshes()
 
         // Return handle with update methods
         return {
@@ -628,6 +629,8 @@ export class Stage extends System {
         otherSplatMesh.updateMatrixWorld(true)
 
         // Add to scene
+        // Store node reference for raycasting
+        otherSplatMesh._hyperfyNode = node
         this.scene.add(otherSplatMesh)
 
         const id = node.id || `splat_${Date.now()}`
@@ -655,6 +658,8 @@ export class Stage extends System {
         } catch (error) {
           console.warn('⚠️ Failed to apply initial splat properties:', error.message)
         }
+
+        // Raycasting is handled via Three.js standard raycasting in _raycastSplatMeshes()
 
         // Return handle with update methods
         return {
@@ -696,8 +701,6 @@ export class Stage extends System {
         }
       }
 
-      // All formats now use the unified fileBytes approach above
-
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error('❌ SplatMesh creation failed:', error)
@@ -715,6 +718,10 @@ export class Stage extends System {
     this.raycaster.far = max
     this.raycastHits.length = 0
     this.octree.raycast(this.raycaster, this.raycastHits)
+
+    // Also raycast against SplatMeshes using Three.js standard raycasting
+    this._raycastSplatMeshes(this.raycaster, this.raycastHits)
+
     return this.raycastHits
   }
 

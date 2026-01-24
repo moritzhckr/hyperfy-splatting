@@ -33,6 +33,8 @@ export class GaussianSplat extends Node {
     this.loadingState = 'idle' // 'idle', 'loading', 'loaded', 'error'
     this.needsRebuild = false
     this.handle = null
+    this.pendingHandle = null // Track in-progress handle creation to prevent ghost splats
+    this.handleCreationId = 0 // Unique ID for each handle creation attempt
   }
 
   mount() {
@@ -56,8 +58,16 @@ export class GaussianSplat extends Node {
   }
 
   unmount() {
+    // Increment creation ID to invalidate any pending handle creation
+    this.handleCreationId++
+
+    // Destroy existing handle
     this.handle?.destroy()
     this.handle = null
+
+    // Destroy pending handle if it exists (was created but not yet assigned)
+    this.pendingHandle?.destroy()
+    this.pendingHandle = null
   }
 
   async loadSplat() {
@@ -106,6 +116,15 @@ export class GaussianSplat extends Node {
     // Only create SplatMesh on client
     if (this.ctx.world.network.isServer) return
 
+    // Destroy existing handle before creating new one
+    if (this.handle) {
+      this.handle.destroy()
+      this.handle = null
+    }
+
+    // Track this creation attempt with unique ID
+    const creationId = ++this.handleCreationId
+
     // Determine URL to use based on loaded data or fallback
     let actualURL = this.ctx.world.resolveURL(this._src)
 
@@ -126,7 +145,8 @@ export class GaussianSplat extends Node {
       }
     }
 
-    this.handle = await this.ctx.world.stage.insertGaussianSplat({
+    // Create the splat handle (async operation)
+    const newHandle = await this.ctx.world.stage.insertGaussianSplat({
       url: actualURL,
       node: this,
       matrix: this.matrixWorld,
@@ -136,6 +156,17 @@ export class GaussianSplat extends Node {
       splatScale: this._splatScale,
       lodRenderScale: this._lodRenderScale
     })
+
+    // Check if this creation was invalidated while we were waiting
+    if (creationId !== this.handleCreationId) {
+      // This handle is stale - destroy it immediately to prevent ghost splat
+      console.log('🗑️ [GaussianSplat] Destroying stale handle (creation invalidated)')
+      newHandle?.destroy()
+      return
+    }
+
+    // Assign the handle
+    this.handle = newHandle
   }
 
   copy(source, recursive) {
