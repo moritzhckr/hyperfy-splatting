@@ -33,8 +33,7 @@ export class GaussianSplat extends Node {
     this.loadingState = 'idle' // 'idle', 'loading', 'loaded', 'error'
     this.needsRebuild = false
     this.handle = null
-    this.pendingHandle = null // Track in-progress handle creation to prevent ghost splats
-    this.handleCreationId = 0 // Unique ID for each handle creation attempt
+    this.handleCreationId = 0 // Unique ID for each handle creation attempt (prevents ghost splats)
   }
 
   mount() {
@@ -64,10 +63,6 @@ export class GaussianSplat extends Node {
     // Destroy existing handle
     this.handle?.destroy()
     this.handle = null
-
-    // Destroy pending handle if it exists (was created but not yet assigned)
-    this.pendingHandle?.destroy()
-    this.pendingHandle = null
   }
 
   async loadSplat() {
@@ -146,11 +141,11 @@ export class GaussianSplat extends Node {
     }
 
     // Create the splat handle (async operation)
+    // Note: sortMode is not passed - Spark.js handles sorting internally via SparkRenderer
     const newHandle = await this.ctx.world.stage.insertGaussianSplat({
       url: actualURL,
       node: this,
       matrix: this.matrixWorld,
-      sortMode: this._sortMode,
       color: this._color,
       opacity: this._opacity,
       splatScale: this._splatScale,
@@ -247,6 +242,8 @@ export class GaussianSplat extends Node {
   }
 
 
+  // Note: sortMode is kept for backwards compatibility but has no effect
+  // Spark.js handles sorting internally via SparkRenderer
   get sortMode() {
     return this._sortMode
   }
@@ -257,12 +254,7 @@ export class GaussianSplat extends Node {
     }
     if (this._sortMode === value) return
     this._sortMode = value
-    if (this.handle && this.handle.updateSortMode) {
-      this.handle.updateSortMode(value)
-    } else if (this.handle) {
-      this.needsRebuild = true
-      this.setDirty()
-    }
+    // Note: Spark.js does not support sortMode - sorting is handled automatically
   }
 
   get color() {
