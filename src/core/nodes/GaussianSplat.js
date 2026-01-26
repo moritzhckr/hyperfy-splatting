@@ -1,5 +1,6 @@
 import { isBoolean, isNumber, isString } from 'lodash-es'
 import { Node } from './Node'
+import { detectSplatFormat } from '../utils/splatFormats'
 
 const defaults = {
   src: null,
@@ -79,7 +80,7 @@ export class GaussianSplat extends Node {
 
     try {
       // Use Hyperfy's standard loader system
-      const format = this._src.split('.').pop()?.toLowerCase()
+      const format = detectSplatFormat(this._src)
 
       // For PLY/KSPLAT/SPLAT/SPZ: Use standard loader
       // SOGS and ZIP files are loaded directly via URL in Stage.js
@@ -124,7 +125,7 @@ export class GaussianSplat extends Node {
     let actualURL = this.ctx.world.resolveURL(this._src)
 
     // For formats handled by standard loader, use the loaded data if available
-    const format = this._src.split('.').pop()?.toLowerCase()
+    const format = detectSplatFormat(this._src)
 
     // SOGS/ZIP files need the actual URL (not blob) so Spark.js can detect fileType
     const isSOGSFormat = format === 'sog' || format === 'sogs' || format === 'zip'

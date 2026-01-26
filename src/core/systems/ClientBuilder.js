@@ -13,6 +13,7 @@ import { ControlPriorities } from '../extras/ControlPriorities'
 import { importApp } from '../extras/appTools'
 import { DEG2RAD, RAD2DEG } from '../extras/general'
 import { createNode } from '../extras/createNode'
+import { detectSplatFormat } from '../utils/splatFormats'
 
 const FORWARD = new THREE.Vector3(0, 0, -1)
 const SNAP_DISTANCE = 1
@@ -1131,7 +1132,7 @@ export class ClientBuilder extends System {
     // slight delay to ensure we get updated pointer position from window focus
     await new Promise(resolve => setTimeout(resolve, 100))
     // get file type
-    const ext = file.name.split('.').pop().toLowerCase()
+    const ext = detectSplatFormat(file.name)
     // if vrm and we are not a builder and custom avatars are not allowed, stop here
     if (ext === 'vrm' && !this.canBuild() && !this.world.settings.customAvatars) {
       return
@@ -1175,7 +1176,7 @@ export class ClientBuilder extends System {
       const canPlace = this.canBuild()
       this.addAvatar(file, transform, canPlace)
     }
-    if (ext === 'ply' || ext === 'splat' || ext === 'ksplat' || ext === 'spz' || ext === 'sog' || ext === 'sogs' || ext === 'zip') {
+    if (ext && ['ply', 'splat', 'ksplat', 'spz', 'sog', 'sogs', 'zip'].includes(ext)) {
       // Show warnings for specific file types
       if (ext === 'spz') {
         console.warn('⚠️ SPZ files have limited support. PLY and KSPLAT formats work best.')
@@ -1188,18 +1189,18 @@ export class ClientBuilder extends System {
 
   async addSplat(file, transform) {
     const hash = await hashFile(file)
-    const ext = file.name.split('.').pop().toLowerCase()
+    const ext = detectSplatFormat(file.name)
     const filename = `${hash}.${ext}`
     const url = `asset://${filename}`
     const sizeMB = file.size / (1024 * 1024)
-    
-    
+
+
     // Check file size and warn if necessary
     this.validateSplatFileSize(sizeMB)
-    
+
     // Cache file for immediate loading
     this.cacheSplatFile(file, url)
-    
+
     // Create inline script with pre-loaded file URL
     const scriptContent = `
 /**
@@ -1328,7 +1329,7 @@ app.on('update', () => {
         console.error('❌ Failed to create splat:', error)
       }
     }
-    
+
     // Update sort mode if it changed
     if (splat && props.sortMode && props.sortMode !== lastSortMode) {
       try {
@@ -1339,7 +1340,7 @@ app.on('update', () => {
       }
     }
   }
-  
+
   // Update color if it changed (outside of splat file condition)
   if (splat && props.color && props.color !== lastColor) {
     try {
@@ -1349,7 +1350,7 @@ app.on('update', () => {
       console.error('❌ Failed to update color:', error)
     }
   }
-  
+
   // Update opacity if it changed (outside of splat file condition)
   if (splat && props.opacity !== undefined && props.opacity !== lastOpacity) {
     try {
@@ -1364,14 +1365,14 @@ app.on('update', () => {
 
 } // end if (world.isClient)
 `
-    
+
     const scriptHash = await hashFile(new Blob([scriptContent], { type: 'text/javascript' }))
     const scriptFilename = `${scriptHash}.js`
     const scriptUrl = `asset://${scriptFilename}`
-    
+
     // cache script locally
     this.world.loader.insert('script', scriptUrl, new File([scriptContent], scriptFilename, { type: 'text/javascript' }))
-    
+
     // create blueprint with both model and script
     const blueprint = {
       id: uuid(),
@@ -1394,10 +1395,10 @@ app.on('update', () => {
       scene: false,
       disabled: false,
     }
-    
+
     // register blueprint
     this.world.blueprints.add(blueprint, true)
-    
+
     // create app entity - no temporary uploader since we want immediate loading
     const data = {
       id: uuid(),
@@ -1411,22 +1412,22 @@ app.on('update', () => {
       pinned: false,
       state: {},
     }
-    
+
     console.log('  Script file:', scriptFilename)
-    
+
     try {
       // upload both files in parallel FIRST
       const uploadResults = await Promise.all([
         this.world.network.upload(file), // the splat file
         this.world.network.upload(new File([scriptContent], scriptFilename, { type: 'text/javascript' })) // the app script
       ])
-      
+
       // Create app AFTER upload is complete
       const app = this.world.entities.add(data, true)
-      
+
       // mark as uploaded so it loads immediately
       app.onUploaded()
-      
+
     } catch (err) {
       console.error('❌ Failed to upload splat files:', err)
       console.error('  Error details:', err.message, err.stack)

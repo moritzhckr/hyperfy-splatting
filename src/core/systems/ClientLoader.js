@@ -12,6 +12,8 @@ import { TextureLoader } from 'three'
 import { formatBytes } from '../extras/formatBytes'
 import { emoteUrls } from '../extras/playerEmotes'
 import Hls from 'hls.js/dist/hls.js'
+import { detectSplatFormat } from '../utils/splatFormats'
+import { getSparkModule } from '../utils/sparkCache'
 // Streaming loader removed - using Spark.js native handling for all formats
 
 // THREE.Cache.enabled = true
@@ -336,7 +338,7 @@ export class ClientLoader extends System {
         return audioBuffer
       }
       if (type === 'splat') {
-        const format = file.name.split('.').pop().toLowerCase()
+        const format = detectSplatFormat(file.name)
         console.log('📦 [ClientLoader] Loading splat file:', file.name, 'Format:', format, 'Size:', file.size)
 
         // For SPZ: Use Spark.js native handling
@@ -345,7 +347,7 @@ export class ClientLoader extends System {
           const fileBytes = await file.arrayBuffer()
 
           const createSplatMesh = async (options = {}) => {
-            const { SplatMesh } = await import('@sparkjsdev/spark')
+            const { SplatMesh } = await getSparkModule()
             console.log('🔧 [ClientLoader SPZ] Creating via Spark SplatMesh')
 
             const blob = new Blob([fileBytes], { type: 'application/octet-stream' })
@@ -394,7 +396,7 @@ export class ClientLoader extends System {
         const fileBytes = await file.arrayBuffer()
 
         const createSplatMesh = async (options = {}) => {
-          const { SplatMesh } = await import('@sparkjsdev/spark')
+          const { SplatMesh } = await getSparkModule()
 
           console.log('🔧 [ClientLoader OTHER] Creating SplatMesh')
           console.log('   fileBytes length:', fileBytes.byteLength)
@@ -408,11 +410,15 @@ export class ClientLoader extends System {
             const sparkFileType = format === 'ksplat' ? 'splat' : format
             console.log('   sparkFileType:', sparkFileType)
 
+            // CRITICAL FIX: Force 10x scale to avoid float precision artifacts (consistent with insert method)
+            const PRECISION_SCALE = 10.0
+
             // Build options, ensuring fileType is never undefined
             const splatMeshOptions = {
               ...options,
               url: blobUrl,
               fileType: sparkFileType,
+              scale: PRECISION_SCALE, // Force larger scale to avoid float precision issues
               onLoad: (mesh) => {
                 console.log('✅ [ClientLoader OTHER] onLoad fired! numSplats:', mesh.numSplats)
                 URL.revokeObjectURL(blobUrl)
@@ -573,17 +579,17 @@ export class ClientLoader extends System {
     if (type === 'splat') {
       // Store the file directly for hasFile/getFile to work
       this.files.set(url, file)
-      
+
       // For splat files, create the same structure as load() method
       promise = Promise.resolve().then(async () => {
-        const format = file.name.split('.').pop().toLowerCase()
+        const format = detectSplatFormat(file.name)
 
         // For SPZ: Use fileBytes approach to avoid gzip conflicts
         if (format === 'spz') {
           const fileBytes = await file.arrayBuffer()
 
           const createSplatMesh = async (options = {}) => {
-            const { SplatMesh } = await import('@sparkjsdev/spark')
+            const { SplatMesh } = await getSparkModule()
 
             // CRITICAL FIX: Force 10x scale to avoid float precision artifacts
             const PRECISION_SCALE = 10.0
@@ -624,7 +630,7 @@ export class ClientLoader extends System {
         const fileBytes = await file.arrayBuffer()
 
         const createSplatMesh = async (options = {}) => {
-          const { SplatMesh } = await import('@sparkjsdev/spark')
+          const { SplatMesh } = await getSparkModule()
 
           // CRITICAL FIX: Force 10x scale to avoid float precision artifacts
           const PRECISION_SCALE = 10.0

@@ -3,6 +3,8 @@ import { isNumber } from 'lodash-es'
 
 import { System } from './System'
 import { LooseOctree } from '../extras/LooseOctree'
+import { detectSplatFormat, getSparkFileType } from '../utils/splatFormats'
+import { getSparkModule } from '../utils/sparkCache'
 
 // Spark.js will be dynamically imported on client-side only
 // SparkRenderer attached to camera for float16 precision fix
@@ -386,6 +388,11 @@ export class Stage extends System {
 
   // Helper: Create splat handle object
   _createSplatHandle(splatMesh, { id, srcUrl, removeFromCache = false, loadInterval = null }) {
+    // Store interval ID on the splatMesh for cleanup
+    if (loadInterval) {
+      splatMesh._loadIntervalId = loadInterval
+    }
+
     return {
       splatMesh,
       move: (newMatrix) => {
@@ -412,8 +419,9 @@ export class Stage extends System {
       },
       destroy: () => {
         // Clean up SOGS load interval if exists
-        if (loadInterval) {
-          clearInterval(loadInterval)
+        if (splatMesh._loadIntervalId) {
+          clearInterval(splatMesh._loadIntervalId)
+          splatMesh._loadIntervalId = null
         }
         this.scene.remove(splatMesh)
         this.splatMeshes.delete(id)
@@ -436,8 +444,8 @@ export class Stage extends System {
     }
 
     try {
-      // Dynamically import Spark.js only on client
-      const { SplatMesh, SparkRenderer } = await import('@sparkjsdev/spark')
+      // Dynamically import Spark.js only on client using cached import
+      const { SplatMesh, SparkRenderer } = await getSparkModule()
 
       // Create SparkRenderer singleton and attach to camera for float16 precision fix
       if (!sparkRendererInstance && this.world.camera && this.world.graphics?.renderer) {
@@ -456,15 +464,10 @@ export class Stage extends System {
         console.log(`✅ SparkRenderer attached (tier: ${tier}, maxStdDev: ${sparkRendererInstance.maxStdDev}, lodScale: ${getDefaultLodRenderScale()})`)
       }
 
-      // Detect file type from source URL
+      // Detect file type from source URL using shared utility
       const srcUrl = node._src || url
-      const ext = srcUrl?.split('.').pop()?.toLowerCase()
-
-      let fileType = null
-      if (ext === 'ksplat' || ext === 'splat') fileType = ext
-      else if (ext === 'ply') fileType = 'ply'
-      else if (ext === 'sog' || ext === 'sogs' || ext === 'zip') fileType = 'pcsogs'
-      else if (ext === 'sogsz' || ext === 'sogszip') fileType = 'pcsogszip'
+      const ext = srcUrl ? detectSplatFormat(srcUrl) : null
+      const fileType = ext ? getSparkFileType(ext) : null
 
       const isSOGS = fileType === 'pcsogs' || fileType === 'pcsogszip'
       const setupOptions = { node, matrix, color, opacity, splatScale, lodRenderScale }
@@ -536,6 +539,11 @@ export class Stage extends System {
     this.models.clear()
     // Clean up splat meshes
     for (const [_id, splatMesh] of this.splatMeshes) {
+      // Clear any associated intervals
+      if (splatMesh._loadIntervalId) {
+        clearInterval(splatMesh._loadIntervalId)
+        splatMesh._loadIntervalId = null
+      }
       this.scene.remove(splatMesh)
       if (splatMesh.dispose) {
         splatMesh.dispose()

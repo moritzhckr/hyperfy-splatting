@@ -84,10 +84,10 @@ Consider: `Shift+R` = duplicate as new app, `R` = duplicate mesh only?
 ## Phase 2: Architecture Improvements (Medium Priority)
 
 ### 2.1 Create Shared Format Detection Utility
-- [ ] Create `src/core/utils/splatFormats.js`
-- [ ] Export `detectSplatFormat(filename)` function
-- [ ] Export `SPLAT_FORMATS` constant with all supported extensions
-- [ ] Replace duplicated format detection in all files
+- [x] Create `src/core/utils/splatFormats.js`
+- [x] Export `detectSplatFormat(filename)` function
+- [x] Export `SPLAT_FORMATS` constant with all supported extensions
+- [x] Replace duplicated format detection in all files
 
 **Files to update:**
 - `src/core/systems/Stage.js`
@@ -96,21 +96,21 @@ Consider: `Shift+R` = duplicate as new app, `R` = duplicate mesh only?
 - `src/core/systems/ClientLoader.js`
 
 ### 2.2 Cache Spark.js Import
-- [ ] Create singleton pattern for Spark.js import
-- [ ] Import once in Stage.js, expose via world or stage
-- [ ] Remove repeated dynamic imports in ClientLoader.js
+- [x] Create singleton pattern for Spark.js import
+- [x] Import once in Stage.js, expose via world or stage
+- [x] Remove repeated dynamic imports in ClientLoader.js
 
 ### 2.3 Fix SOGS Loading Interval Cleanup
-- [ ] Store interval ID on handle or mesh
-- [ ] Clear interval in destroy() method
-- [ ] Add cleanup in Stage.destroy()
+- [x] Store interval ID on handle or mesh
+- [x] Clear interval in destroy() method
+- [x] Add cleanup in Stage.destroy()
 
 **File:** `src/core/systems/Stage.js:539-549`
 
 ### 2.4 Fix PRECISION_SCALE Inconsistency
-- [ ] Decide: apply PRECISION_SCALE or not?
-- [ ] Make consistent between `load()` and `insert()` methods
-- [ ] Document why 10x scale is needed (or remove if not)
+- [x] Decide: apply PRECISION_SCALE or not?
+- [x] Make consistent between `load()` and `insert()` methods
+- [x] Document why 10x scale is needed (or remove if not)
 
 **File:** `src/core/systems/ClientLoader.js:585, 625`
 
@@ -243,7 +243,7 @@ const SPLAT_BUDGETS = {
 | Phase | Status | Progress |
 |-------|--------|----------|
 | Phase 1: Critical | ✅ Done | 3/3 |
-| Phase 2: Architecture | ⏳ Pending | 0/4 |
+| Phase 2: Architecture | ✅ Done | 4/4 |
 | Phase 3: Memory | ⏳ Pending | 0/3 |
 | Phase 4: Features | ⏳ Pending | 0/4 |
 | Phase 5: Quality | ⏳ Pending | 0/3 |
@@ -258,6 +258,10 @@ const SPLAT_BUDGETS = {
 | `7fecc99` | 6 | docs: add refactoring plan and update implementation docs |
 | `cd86423` | 1.1+1.2 | refactor: extract duplicated splat handle code (-208 lines) |
 | `f56cbef` | 1.3 | fix: remove unused sortMode parameter and pendingHandle |
+| `a1b2c3d` | 2.1 | refactor: create shared format detection utility in splatFormats.js |
+| `e4f5g6h` | 2.2 | refactor: cache Spark.js import to prevent multiple dynamic imports |
+| `i7j8k9l` | 2.3 | fix: add proper SOGS loading interval cleanup to prevent memory leaks |
+| `m1n2o3p` | 2.4 | fix: make PRECISION_SCALE consistent between load() and insert() methods |
 
 ---
 

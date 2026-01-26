@@ -80,6 +80,8 @@ const SPLAT_BUDGETS = {
 | `src/core/nodes/GaussianSplat.js` | Node definition, properties, handle management |
 | `src/core/systems/ClientBuilder.js` | Drag & drop, selection, inline splat script |
 | `src/core/systems/ClientLoader.js` | Splat file loading and caching |
+| `src/core/utils/splatFormats.js` | Shared format detection utilities |
+| `src/core/utils/sparkCache.js` | Cached Spark.js import singleton |
 
 ---
 
@@ -274,12 +276,12 @@ pulseUniform.value = 0.5 + 0.5 * Math.sin(time * 2)
 
 ## Known Issues / TODO
 
-### Code Quality Issues (Phase 1 Done)
+### Code Quality Issues (Phase 1 & 2 Done)
 - [x] ~~Massive code duplication in Stage.js `insertGaussianSplat`~~ → Refactored
 - [x] ~~Unnecessary THREE re-imports inside async functions~~ → Removed
 - [x] ~~`sortMode` parameter passed but never used~~ → Removed
 - [x] ~~SOGS interval not cleaned up on destroy~~ → Fixed
-- [ ] Format detection duplicated across 4 files
+- [x] Format detection duplicated across 4 files → Centralized in `src/core/utils/splatFormats.js
 - [ ] Inline script as 180-line string in ClientBuilder.js
 
 ### Splat Orientation
