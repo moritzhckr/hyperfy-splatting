@@ -1201,30 +1201,26 @@ export class ClientBuilder extends System {
     // Cache file for immediate loading
     this.cacheSplatFile(file, url)
 
-    // Create inline script with pre-loaded file URL
-    const scriptContent = `
-/**
- * Gaussian Splat App v2 (Drag & Drop Version)
- * Identical to apps/GaussianSplat.js but with pre-loaded file
+    // Create inline script with pre-loaded file URL - consistent with apps/GaussianSplat.js
+    const scriptContent = `/**
+ * Gaussian Splat App v3 (Drag & Drop Version)
+ * Consistent with apps/GaussianSplat.js but with pre-loaded file
  */
 
-// Only run on client - server doesn't have Spark.js or DOM APIs
-if (world.isClient) {
-
-// GaussianSplat script starting
-
+// Configure props UI
 app.configure([
   {
     key: 'splatFile',
     type: 'file',
+    kind: 'splat',
     label: 'Splat File',
     initial: '${url}',
-    accept: '.ply,.splat,.ksplat,.spz,.sogs,.zip',
-    hint: 'Upload PLY, KSPLAT, SPLAT, SPZ, or SOGS file'
+    accept: '.ply,.splat,.ksplat,.spz,.sog,.sogs,.zip',
+    hint: 'Upload PLY, KSPLAT, SPLAT, SPZ, SOG, SOGS, or ZIP file'
   },
   {
     key: 'sortMode',
-    type: 'select',
+    type: 'switch',
     label: 'Sort Mode',
     initial: 'auto',
     options: [
@@ -1234,14 +1230,6 @@ app.configure([
     ],
     hint: 'Splat sorting algorithm'
   },
-  {
-    key: 'showCube',
-    type: 'toggle',
-    label: 'Show Cube Handle',
-    initial: false,
-    hint: 'Toggle visibility of positioning cube handle'
-  },
-  // Note: autoRotate removed - 180° flip is now applied internally in Stage.js
   {
     key: 'color',
     type: 'color',
@@ -1259,112 +1247,151 @@ app.configure([
     step: 0.01,
     hint: 'Overall transparency of the splats'
   },
+  {
+    key: 'lodRenderScale',
+    type: 'range',
+    label: 'LOD Render Scale',
+    initial: 1.0,
+    min: 0.1,
+    max: 5.0,
+    step: 0.1,
+    hint: 'LOD quality control - higher = more culling (better performance), lower = more detail'
+  },
 ])
 
-// Create cube handle (don't add it initially since initial: false)
-const cubeHandle = app.create('prim', {
+// Only run rendering logic on client
+if (world.isClient) {
+
+// Create default cube (always visible, like Model.hyp)
+const defaultCube = app.create('prim', {
   type: 'box',
-  position: [0, 0, 0],
+  position: [0, 0.5, 0], // Lift up half height so it sits on ground
   scale: [1, 1, 1],
   color: '#ffaa00',
   opacity: 0.3,
   transparent: true,
   castShadow: false,
-  receiveShadow: false
+  receiveShadow: false,
+  frustumCulled: true
 })
-// Don't add to app initially since showCube starts as false
+// Always add the default cube
+app.add(defaultCube)
 
-// State for splat
-let splat = null
-let lastSplatFile = null
-let lastSortMode = null
-let lastShowCube = false  // Initialize to match initial value
-let lastColor = null
-let lastOpacity = null
+// App state
+const state = {
+  splat: null,
+  lastSplatFile: null,
+  lastSortMode: null,
+  lastColor: null,
+  lastOpacity: null,
+  lastLodRenderScale: null
+}
 
-app.on('update', () => {
-  // Update cube visibility only when changed (always check, not just when splat exists)
-  if (cubeHandle && typeof props.showCube !== 'undefined' && props.showCube !== lastShowCube) {
-    if (props.showCube) {
-      // Show cube by adding it back to the app
-      if (!cubeHandle.parent) {
-        app.add(cubeHandle)
-      }
-    } else {
-      // Hide cube by removing it from the app
-      if (cubeHandle.parent) {
-        cubeHandle.parent.remove(cubeHandle)
-      }
+function createSplat() {
+  try {
+    // Handle both object format {type, name, url} and string format
+    const splatUrl = typeof props.splatFile === 'object' && props.splatFile && props.splatFile.url
+      ? props.splatFile.url
+      : props.splatFile
+
+    if (!splatUrl || typeof splatUrl !== 'string' || !splatUrl.startsWith('asset://')) {
+      return
     }
-    lastShowCube = props.showCube
-    console.log('🎲 Cube visibility updated to:', props.showCube)
+
+    state.splat = app.create('gaussiansplat', {
+      src: splatUrl,
+      sortMode: props.sortMode || 'auto',
+      linked: false,
+      color: props.color || '#ffffff',
+      opacity: props.opacity !== undefined ? props.opacity : 1.0,
+      lodRenderScale: props.lodRenderScale !== undefined ? props.lodRenderScale : 1.0
+    })
+
+    app.add(state.splat)
+    state.lastSplatFile = props.splatFile
+    state.lastColor = props.color
+    state.lastOpacity = props.opacity
+    state.lastLodRenderScale = props.lodRenderScale
+  } catch (error) {
+    console.error('❌ Failed to create splat:', error)
   }
+}
 
-  // Handle splat file changes
-  if (props.splatFile && typeof props.splatFile === 'string' && props.splatFile.startsWith('asset://')) {
-    // Only create new splat if the file changed
-    if (props.splatFile !== lastSplatFile) {
-      // Remove old splat if exists
-      if (splat && splat.parent) {
-        splat.parent.remove(splat)
-        splat = null
-      }
-
-      // Create new splat (only once!)
-      // Note: 180° flip is applied internally in Stage.js, no app.rotation needed
-      try {
-        splat = app.create('gaussiansplat', {
-          src: props.splatFile,
-          sortMode: props.sortMode || 'auto',
-          linked: false,
-          color: props.color || '#ffffff',
-          opacity: props.opacity !== undefined ? props.opacity : 1.0
-        })
-
-        app.add(splat)
-        lastSplatFile = props.splatFile
-        lastColor = props.color
-        lastOpacity = props.opacity
-      } catch (error) {
-        console.error('❌ Failed to create splat:', error)
-      }
-    }
-
-    // Update sort mode if it changed
-    if (splat && props.sortMode && props.sortMode !== lastSortMode) {
-      try {
-        splat.sortMode = props.sortMode
-        lastSortMode = props.sortMode
-      } catch (error) {
-        console.error('❌ Failed to update sort mode:', error)
-      }
-    }
+function removeSplat() {
+  if (state.splat && state.splat.parent) {
+    state.splat.parent.remove(state.splat)
+    state.splat = null
   }
+}
 
-  // Update color if it changed (outside of splat file condition)
-  if (splat && props.color && props.color !== lastColor) {
+function updateSplatFile() {
+  if (props.splatFile !== state.lastSplatFile) {
+    removeSplat()
+    // Handle both object format {type, name, url} and string format
+    const splatUrl = typeof props.splatFile === 'object' && props.splatFile && props.splatFile.url
+      ? props.splatFile.url
+      : props.splatFile
+    if (splatUrl && typeof splatUrl === 'string' && splatUrl.startsWith('asset://')) {
+      createSplat()
+    }
+    state.lastSplatFile = props.splatFile
+  }
+}
+
+function updateSortMode() {
+  if (state.splat && props.sortMode && props.sortMode !== state.lastSortMode) {
     try {
-      splat.color = props.color
-      lastColor = props.color
+      state.splat.sortMode = props.sortMode
+      state.lastSortMode = props.sortMode
+    } catch (error) {
+      console.error('❌ Failed to update sort mode:', error)
+    }
+  }
+}
+
+function updateColor() {
+  if (state.splat && props.color && props.color !== state.lastColor) {
+    try {
+      state.splat.color = props.color
+      state.lastColor = props.color
     } catch (error) {
       console.error('❌ Failed to update color:', error)
     }
   }
+}
 
-  // Update opacity if it changed (outside of splat file condition)
-  if (splat && props.opacity !== undefined && props.opacity !== lastOpacity) {
+function updateOpacity() {
+  if (state.splat && props.opacity !== undefined && props.opacity !== state.lastOpacity) {
     try {
-      splat.opacity = props.opacity
-      lastOpacity = props.opacity
+      state.splat.opacity = props.opacity
+      state.lastOpacity = props.opacity
     } catch (error) {
       console.error('❌ Failed to update opacity:', error)
     }
   }
+}
+
+function updateLodRenderScale() {
+  if (state.splat && typeof props.lodRenderScale === 'number' && props.lodRenderScale !== state.lastLodRenderScale) {
+    try {
+      state.splat.lodRenderScale = props.lodRenderScale
+      state.lastLodRenderScale = props.lodRenderScale
+    } catch (error) {
+      console.error('❌ Failed to update LOD render scale:', error)
+    }
+  }
+}
+
+app.on('update', () => {
+  updateSplatFile()
+  updateSortMode()
+  updateColor()
+  updateOpacity()
+  updateLodRenderScale()
 })
 
-
 } // end if (world.isClient)
-`
+`;
 
     const scriptHash = await hashFile(new Blob([scriptContent], { type: 'text/javascript' }))
     const scriptFilename = `${scriptHash}.js`
@@ -1385,7 +1412,11 @@ app.on('update', () => {
       model: 'script-only', // dummy model for splat apps to appear in list
       script: scriptUrl, // the GaussianSplat.js app script
       props: {
-        splatFile: url, // Direct URL for script usage
+        splatFile: { type: 'splat', name: file.name, url }, // Consistent with UI approach
+        sortMode: 'auto',
+        color: '#ffffff',
+        opacity: 1.0,
+        lodRenderScale: 1.0,
         _splatFileAsset: { url }, // Additional reference for cleaner
       },
       preload: false,
