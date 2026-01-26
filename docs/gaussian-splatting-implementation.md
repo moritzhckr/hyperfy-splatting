@@ -274,13 +274,18 @@ pulseUniform.value = 0.5 + 0.5 * Math.sin(time * 2)
 
 ## Known Issues / TODO
 
-### Code Quality Issues
-- [ ] Massive code duplication in Stage.js `insertGaussianSplat`
-- [ ] Unnecessary THREE re-imports inside async functions
-- [ ] `sortMode` parameter passed but never used
+### Code Quality Issues (Phase 1 Done)
+- [x] ~~Massive code duplication in Stage.js `insertGaussianSplat`~~ → Refactored
+- [x] ~~Unnecessary THREE re-imports inside async functions~~ → Removed
+- [x] ~~`sortMode` parameter passed but never used~~ → Removed
+- [x] ~~SOGS interval not cleaned up on destroy~~ → Fixed
 - [ ] Format detection duplicated across 4 files
-- [ ] SOGS interval not cleaned up on destroy
 - [ ] Inline script as 180-line string in ClientBuilder.js
+
+### Splat Orientation
+- 180° X-axis flip is applied **internally** in `_setupSplatMesh()` via `SPLAT_FLIP_QUATERNION`
+- User's app.rotation stays at their actual desired rotation (0° by default)
+- No need for autoRotate toggle - correction happens automatically
 
 ### Feature Gaps
 - [ ] No loading progress UI (onProgress available)

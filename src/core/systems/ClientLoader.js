@@ -404,15 +404,20 @@ export class ClientLoader extends System {
           const blobUrl = URL.createObjectURL(blob)
 
           return new Promise((resolve, reject) => {
+            // Map ksplat to splat for Spark.js compatibility
+            const sparkFileType = format === 'ksplat' ? 'splat' : format
+            console.log('   sparkFileType:', sparkFileType)
+
+            // Build options, ensuring fileType is never undefined
             const splatMeshOptions = {
+              ...options,
               url: blobUrl,
-              fileType: format,
+              fileType: sparkFileType,
               onLoad: (mesh) => {
                 console.log('✅ [ClientLoader OTHER] onLoad fired! numSplats:', mesh.numSplats)
                 URL.revokeObjectURL(blobUrl)
                 resolve(mesh)
-              },
-              ...options
+              }
             }
 
             try {

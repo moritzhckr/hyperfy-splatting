@@ -1233,13 +1233,7 @@ app.configure([
     initial: false,
     hint: 'Toggle visibility of positioning cube handle'
   },
-  {
-    key: 'autoRotate',
-    type: 'toggle',
-    label: 'Flip Splat along X-axis',
-    initial: true,
-    hint: 'Automatically rotate splats 180° on X-axis for correct orientation'
-  },
+  // Note: autoRotate removed - 180° flip is now applied internally in Stage.js
   {
     key: 'color',
     type: 'color',
@@ -1280,10 +1274,6 @@ let lastShowCube = false  // Initialize to match initial value
 let lastColor = null
 let lastOpacity = null
 
-// Check if app already has rotation applied (from saved data or previous auto-rotate)
-// Identity quaternion is [0,0,0,1], so if any rotation exists, skip auto-rotate
-const hasExistingRotation = Math.abs(app.rotation.x) > 0.01 || Math.abs(app.rotation.y) > 0.01 || Math.abs(app.rotation.z) > 0.01
-
 app.on('update', () => {
   // Update cube visibility only when changed (always check, not just when splat exists)
   if (cubeHandle && typeof props.showCube !== 'undefined' && props.showCube !== lastShowCube) {
@@ -1313,6 +1303,7 @@ app.on('update', () => {
       }
 
       // Create new splat (only once!)
+      // Note: 180° flip is applied internally in Stage.js, no app.rotation needed
       try {
         splat = app.create('gaussiansplat', {
           src: props.splatFile,
@@ -1321,15 +1312,6 @@ app.on('update', () => {
           color: props.color || '#ffffff',
           opacity: props.opacity !== undefined ? props.opacity : 1.0
         })
-
-        // Rotate 180° around X-axis to fix splat orientation (if enabled)
-        // ONLY apply on first load (identity quaternion), not on rebuild
-        // This preserves user's manual rotations
-        if (props.autoRotate !== false && !hasExistingRotation) {
-          // Rotate the entire app instead of just the splat
-          // This way the transform values in the UI will be correct
-          app.rotation.x = Math.PI
-        }
 
         app.add(splat)
         lastSplatFile = props.splatFile
@@ -1370,8 +1352,6 @@ app.on('update', () => {
       console.error('❌ Failed to update opacity:', error)
     }
   }
-  
-  
 })
 
 

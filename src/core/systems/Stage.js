@@ -8,6 +8,13 @@ import { LooseOctree } from '../extras/LooseOctree'
 // SparkRenderer attached to camera for float16 precision fix
 let sparkRendererInstance = null
 
+// Pre-computed 180° rotation quaternion around X-axis for splat orientation fix
+// Splat files are typically exported upside-down and need this internal correction
+const SPLAT_FLIP_QUATERNION = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI)
+const _tempPosition = new THREE.Vector3()
+const _tempQuaternion = new THREE.Quaternion()
+const _tempScale = new THREE.Vector3()
+
 // Device-based performance settings
 const getDevicePerformanceTier = () => {
   if (typeof window === 'undefined') return 'desktop'
@@ -349,8 +356,11 @@ export class Stage extends System {
       splatMesh.scale.setScalar(splatScale)
     }
 
-    // Apply transform
-    splatMesh.matrix.copy(matrix)
+    // Apply transform with internal 180° X-axis flip for correct splat orientation
+    // Decompose user matrix, apply flip rotation, recompose
+    matrix.decompose(_tempPosition, _tempQuaternion, _tempScale)
+    _tempQuaternion.multiply(SPLAT_FLIP_QUATERNION) // Apply flip in local space
+    splatMesh.matrix.compose(_tempPosition, _tempQuaternion, _tempScale)
     splatMesh.matrixAutoUpdate = false
     splatMesh.updateMatrixWorld(true)
 
@@ -379,7 +389,10 @@ export class Stage extends System {
     return {
       splatMesh,
       move: (newMatrix) => {
-        splatMesh.matrix.copy(newMatrix)
+        // Apply same internal 180° flip as in _setupSplatMesh
+        newMatrix.decompose(_tempPosition, _tempQuaternion, _tempScale)
+        _tempQuaternion.multiply(SPLAT_FLIP_QUATERNION)
+        splatMesh.matrix.compose(_tempPosition, _tempQuaternion, _tempScale)
         splatMesh.updateMatrixWorld(true)
       },
       updateColor: (newColor) => {

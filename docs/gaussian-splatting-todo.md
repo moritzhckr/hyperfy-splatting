@@ -29,6 +29,28 @@ After each phase, verify:
 
 ---
 
+## URGENT: Known Bugs
+
+### 180° Rotation Bug ✅
+**Status:** FIXED
+
+**Solution implemented:**
+- Added `SPLAT_FLIP_QUATERNION` (180° X-axis) in Stage.js
+- `_setupSplatMesh()` now decomposes matrix, applies flip, recomposes
+- `move()` in handle also applies the flip
+- Removed `autoRotate` toggle from inline script (no longer needed)
+- App rotation stays at user's actual rotation (0° by default)
+
+**Commits:** (pending)
+
+### Missing Keyboard Shortcuts 🟡
+- [ ] Add **Delete** key to delete selected splat (like 3D models)
+- [ ] Add **Duplicate** (Ctrl+D / D) to duplicate selected splat (like 3D models)
+
+**Files:** `src/core/systems/ClientBuilder.js`
+
+---
+
 ## Phase 1: Critical Code Smells (High Priority)
 
 ### 1.1 Extract Duplicated Code in Stage.js ✅
