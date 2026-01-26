@@ -43,9 +43,12 @@ After each phase, verify:
 
 **Commits:** (pending)
 
-### Missing Keyboard Shortcuts 🟡
-- [ ] Add **Delete** key to delete selected splat (like 3D models)
-- [ ] Add **Duplicate** (Ctrl+D / D) to duplicate selected splat (like 3D models)
+### Missing Keyboard Shortcuts ✅
+- [x] Add **Delete/Backspace** key to delete selected splat (like 3D models)
+- [x] **Duplicate** already works with **R** key (D is reserved for WASD movement)
+
+**Note:** Current R duplicates mesh within same app, not creating a new app instance.
+Consider: `Shift+R` = duplicate as new app, `R` = duplicate mesh only?
 
 **Files:** `src/core/systems/ClientBuilder.js`
 

@@ -403,6 +403,9 @@ export class ClientBuilder extends System {
       this.select(null)
     }
     // duplicate
+    // TODO: Currently duplicates the entire app (including splats inside).
+    // For splat apps, this duplicates the mesh within the same app, not creating a new app instance.
+    // Consider: Shift+R = duplicate as new app, R = duplicate mesh only (current behavior)?
     let duplicate
     if (this.xrMenu?.copy) {
       this.xrMenu.copy = false
@@ -469,7 +472,11 @@ export class ClientBuilder extends System {
     if (this.xrMenu.delete) {
       destroy = true
       this.xrMenu.delete = false
-    } else if (this.control.keyX.pressed) {
+    } else if (
+      this.control.keyX.pressed ||
+      this.control.delete.pressed ||
+      this.control.backspace.pressed
+    ) {
       destroy = true
     }
     if (destroy) {
