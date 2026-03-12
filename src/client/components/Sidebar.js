@@ -129,6 +129,7 @@ export function Sidebar({ world, ui }) {
               active={activePane === 'prefs'}
               suspended={ui.pane === 'prefs' && !activePane}
               onClick={() => world.ui.togglePane('prefs')}
+              title='Preferences'
             >
               <MenuIcon size='1.25rem' />
             </Btn>
@@ -136,6 +137,7 @@ export function Sidebar({ world, ui }) {
               active={activePane === 'players'}
               suspended={ui.pane === 'players' && !activePane}
               onClick={() => world.ui.togglePane('players')}
+              title='Players'
             >
               <UsersIcon size='1.25rem' />
             </Btn>
@@ -144,12 +146,13 @@ export function Sidebar({ world, ui }) {
                 onClick={() => {
                   world.emit('sidebar-chat-toggle')
                 }}
+                title='Chat'
               >
                 <MessageSquareTextIcon size='1.25rem' />
               </Btn>
             )}
             {livekit.available && !livekit.connected && (
-              <Btn disabled>
+              <Btn disabled title='Microphone'>
                 <MicOffIcon size='1.25rem' />
               </Btn>
             )}
@@ -159,6 +162,7 @@ export function Sidebar({ world, ui }) {
                 onClick={() => {
                   world.livekit.setMicrophoneEnabled()
                 }}
+                title='Microphone'
               >
                 {livekit.mic && livekit.level !== 'disabled' && !livekit.muted ? (
                   <MicIcon size='1.25rem' />
@@ -172,6 +176,7 @@ export function Sidebar({ world, ui }) {
                 onClick={() => {
                   world.xr.enter()
                 }}
+                title='Enter VR'
               >
                 <VRIcon size='1.25rem' />
               </Btn>
@@ -183,6 +188,7 @@ export function Sidebar({ world, ui }) {
                 active={activePane === 'world'}
                 suspended={ui.pane === 'world' && !activePane}
                 onClick={() => world.ui.togglePane('world')}
+                title='World Settings'
               >
                 <EarthIcon size='1.25rem' />
               </Btn>
@@ -197,6 +203,7 @@ export function Sidebar({ world, ui }) {
                 active={activePane === 'apps'}
                 suspended={ui.pane === 'apps' && !activePane}
                 onClick={() => world.ui.togglePane('apps')}
+                title='Apps'
               >
                 <LayersIcon size='1.25rem' />
               </Btn>
@@ -204,6 +211,7 @@ export function Sidebar({ world, ui }) {
                 active={activePane === 'add'}
                 suspended={ui.pane === 'add' && !activePane}
                 onClick={() => world.ui.togglePane('add')}
+                title='Add App'
               >
                 <CirclePlusIcon size='1.25rem' />
               </Btn>
@@ -215,6 +223,7 @@ export function Sidebar({ world, ui }) {
                 active={activePane === 'app'}
                 suspended={ui.pane === 'app' && !activePane}
                 onClick={() => world.ui.togglePane('app')}
+                title='App Properties'
               >
                 <SquareMenuIcon size='1.25rem' />
               </Btn>
@@ -222,6 +231,7 @@ export function Sidebar({ world, ui }) {
                 active={activePane === 'script'}
                 suspended={ui.pane === 'script' && !activePane}
                 onClick={() => world.ui.togglePane('script')}
+                title='Script Editor'
               >
                 <CodeIcon size='1.25rem' />
               </Btn>
@@ -229,6 +239,7 @@ export function Sidebar({ world, ui }) {
                 active={activePane === 'nodes'}
                 suspended={ui.pane === 'nodes' && !activePane}
                 onClick={() => world.ui.togglePane('nodes')}
+                title='Node Tree'
               >
                 <ListTreeIcon size='1.25rem' />
               </Btn>
@@ -236,6 +247,7 @@ export function Sidebar({ world, ui }) {
                 active={activePane === 'meta'}
                 suspended={ui.pane === 'meta' && !activePane}
                 onClick={() => world.ui.togglePane('meta')}
+                title='Metadata'
               >
                 <TagIcon size='1.25rem' />
               </Btn>
@@ -795,6 +807,7 @@ const appsState = {
   scrollTop: 0,
 }
 function Apps({ world, hidden }) {
+  const { setHint } = useContext(HintContext)
   const contentRef = useRef()
   const [query, setQuery] = useState(appsState.query)
   const [perf, setPerf] = useState(appsState.perf)
@@ -874,7 +887,12 @@ function Apps({ world, hidden }) {
             <SearchIcon size='1.125rem' />
             <input type='text' placeholder='Search' value={query} onChange={e => setQuery(e.target.value)} />
           </label>
-          <div className={cls('apps-toggle', { active: perf })} onClick={() => setPerf(!perf)}>
+          <div
+            className={cls('apps-toggle', { active: perf })}
+            onClick={() => setPerf(!perf)}
+            onPointerEnter={() => setHint('Toggle performance stats view')}
+            onPointerLeave={() => setHint(null)}
+          >
             <RocketIcon size='1.125rem' />
           </div>
         </div>
@@ -1223,7 +1241,12 @@ function App({ world, hidden }) {
         <div className='app-content noscrollbar'>
           {!blueprint.scene && (
             <div className='app-transforms'>
-              <div className='app-transforms-btn' onClick={() => setTransforms(!transforms)}>
+              <div
+                className='app-transforms-btn'
+                onClick={() => setTransforms(!transforms)}
+                onPointerEnter={() => setHint('Toggle transform controls')}
+                onPointerLeave={() => setHint(null)}
+              >
                 <ChevronsUpDownIcon size='1rem' />
               </div>
               {transforms && <AppTransformFields app={app} />}
@@ -1244,6 +1267,7 @@ function AppTransformFields({ app }) {
     <>
       <FieldVec3
         label='Position'
+        hint='World position in meters (X, Y, Z)'
         dp={2}
         smallStep={0.01}
         step={0.1}
@@ -1261,6 +1285,7 @@ function AppTransformFields({ app }) {
       />
       <FieldVec3
         label='Rotation'
+        hint='Rotation in degrees (X, Y, Z)'
         dp={2}
         smallStep={0.1}
         step={1}
@@ -1278,6 +1303,7 @@ function AppTransformFields({ app }) {
       />
       <FieldVec3
         label='Scale'
+        hint='Scale multiplier (X, Y, Z)'
         dp={2}
         smallStep={0.01}
         step={0.1}
@@ -1488,32 +1514,86 @@ function Script({ world, hidden }) {
   const app = world.ui.state.app
   const containerRef = useRef()
   const resizeRef = useRef()
+  const resizeBottomRef = useRef()
+  const resizeCornerRef = useRef()
   const [handle, setHandle] = useState(null)
   useEffect(() => {
-    const elem = resizeRef.current
     const container = containerRef.current
+    const minW = 250
+    const minH = 200
+    // width (persisted)
     container.style.width = `${storage.get('code-editor-width', 500)}px`
-    let active
-    function onPointerDown(e) {
-      active = true
-      elem.addEventListener('pointermove', onPointerMove)
-      elem.addEventListener('pointerup', onPointerUp)
+    // height: compute from script line count
+    const code = app.script?.code || '// …'
+    const lineCount = code.split('\n').length
+    const lineHeight = 19
+    const headerHeight = 50
+    const maxH = container.parentElement.offsetHeight
+    const computed = Math.max(minH, Math.min(headerHeight + lineCount * lineHeight, maxH))
+    container.style.height = `${computed}px`
+    // right edge resizer
+    const rightElem = resizeRef.current
+    function onRightDown(e) {
+      rightElem.addEventListener('pointermove', onRightMove)
+      rightElem.addEventListener('pointerup', onRightUp)
       e.currentTarget.setPointerCapture(e.pointerId)
     }
-    function onPointerMove(e) {
-      let newWidth = container.offsetWidth + e.movementX
-      if (newWidth < 250) newWidth = 250
-      container.style.width = `${newWidth}px`
-      storage.set('code-editor-width', newWidth)
+    function onRightMove(e) {
+      let w = container.offsetWidth + e.movementX
+      if (w < minW) w = minW
+      container.style.width = `${w}px`
+      storage.set('code-editor-width', w)
     }
-    function onPointerUp(e) {
+    function onRightUp(e) {
       e.currentTarget.releasePointerCapture(e.pointerId)
-      elem.removeEventListener('pointermove', onPointerMove)
-      elem.removeEventListener('pointerup', onPointerUp)
+      rightElem.removeEventListener('pointermove', onRightMove)
+      rightElem.removeEventListener('pointerup', onRightUp)
     }
-    elem.addEventListener('pointerdown', onPointerDown)
+    rightElem.addEventListener('pointerdown', onRightDown)
+    // bottom edge resizer
+    const bottomElem = resizeBottomRef.current
+    function onBottomDown(e) {
+      bottomElem.addEventListener('pointermove', onBottomMove)
+      bottomElem.addEventListener('pointerup', onBottomUp)
+      e.currentTarget.setPointerCapture(e.pointerId)
+    }
+    function onBottomMove(e) {
+      let h = container.offsetHeight + e.movementY
+      if (h < minH) h = minH
+      container.style.height = `${h}px`
+    }
+    function onBottomUp(e) {
+      e.currentTarget.releasePointerCapture(e.pointerId)
+      bottomElem.removeEventListener('pointermove', onBottomMove)
+      bottomElem.removeEventListener('pointerup', onBottomUp)
+    }
+    bottomElem.addEventListener('pointerdown', onBottomDown)
+    // corner resizer (both axes)
+    const cornerElem = resizeCornerRef.current
+    function onCornerDown(e) {
+      cornerElem.addEventListener('pointermove', onCornerMove)
+      cornerElem.addEventListener('pointerup', onCornerUp)
+      e.currentTarget.setPointerCapture(e.pointerId)
+    }
+    function onCornerMove(e) {
+      let w = container.offsetWidth + e.movementX
+      let h = container.offsetHeight + e.movementY
+      if (w < minW) w = minW
+      if (h < minH) h = minH
+      container.style.width = `${w}px`
+      container.style.height = `${h}px`
+      storage.set('code-editor-width', w)
+    }
+    function onCornerUp(e) {
+      e.currentTarget.releasePointerCapture(e.pointerId)
+      cornerElem.removeEventListener('pointermove', onCornerMove)
+      cornerElem.removeEventListener('pointerup', onCornerUp)
+    }
+    cornerElem.addEventListener('pointerdown', onCornerDown)
     return () => {
-      elem.removeEventListener('pointerdown', onPointerDown)
+      rightElem.removeEventListener('pointerdown', onRightDown)
+      bottomElem.removeEventListener('pointerdown', onBottomDown)
+      cornerElem.removeEventListener('pointerdown', onCornerDown)
     }
   }, [])
   return (
@@ -1522,14 +1602,15 @@ function Script({ world, hidden }) {
       className={cls('script', { hidden })}
       css={css`
         pointer-events: auto;
-        align-self: stretch;
+        align-self: flex-start;
         background: rgba(11, 10, 21, 0.9);
         border: 1px solid rgba(255, 255, 255, 0.05);
         border-radius: 1.375rem;
         display: flex;
         flex-direction: column;
         align-items: stretch;
-        min-height: 23.7rem;
+        min-height: 12.5rem;
+        max-height: 100%;
         position: relative;
         .script-head {
           height: 3.125rem;
@@ -1564,6 +1645,23 @@ function Script({ world, hidden }) {
           width: 10px;
           cursor: ew-resize;
         }
+        .script-resizer-bottom {
+          position: absolute;
+          left: 10px;
+          right: 10px;
+          bottom: -5px;
+          height: 10px;
+          cursor: ns-resize;
+        }
+        .script-resizer-corner {
+          position: absolute;
+          right: -5px;
+          bottom: -5px;
+          width: 16px;
+          height: 16px;
+          cursor: nwse-resize;
+          z-index: 1;
+        }
         &.hidden {
           opacity: 0;
           pointer-events: none;
@@ -1578,6 +1676,8 @@ function Script({ world, hidden }) {
       </div>
       <ScriptEditor key={app.data.id} app={app} onHandle={setHandle} />
       <div className='script-resizer' ref={resizeRef} />
+      <div className='script-resizer-bottom' ref={resizeBottomRef} />
+      <div className='script-resizer-corner' ref={resizeCornerRef} />
     </div>
   )
 }

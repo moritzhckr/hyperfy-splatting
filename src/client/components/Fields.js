@@ -792,6 +792,19 @@ export function FieldVec3({
           align-items: center;
           gap: 0.5rem;
         }
+        .fieldvec3-input {
+          flex: 1;
+          display: flex;
+          align-items: center;
+          gap: 0.25rem;
+        }
+        .fieldvec3-axis {
+          font-size: 0.6875rem;
+          color: rgba(255, 255, 255, 0.25);
+          flex-shrink: 0;
+          user-select: none;
+          text-transform: uppercase;
+        }
         input {
           font-size: 0.9375rem;
           height: 1rem;
@@ -813,123 +826,132 @@ export function FieldVec3({
     >
       <div className='fieldvec3-label'>{label}</div>
       <div className='fieldvec3-field'>
-        <input
-          type='text'
-          value={localX}
-          onChange={e => setLocalX(e.target.value)}
-          onKeyDown={e => {
-            if (e.code === 'Enter') {
-              e.preventDefault()
-              e.target.blur()
-            }
-            if (e.code === 'ArrowUp') {
-              const amount = e.shiftKey ? bigStep : e.altKey ? smallStep : step
-              const num = parseStr(valueX + amount)
+        <div className='fieldvec3-input'>
+          <span className='fieldvec3-axis'>X</span>
+          <input
+            type='text'
+            value={localX}
+            onChange={e => setLocalX(e.target.value)}
+            onKeyDown={e => {
+              if (e.code === 'Enter') {
+                e.preventDefault()
+                e.target.blur()
+              }
+              if (e.code === 'ArrowUp') {
+                const amount = e.shiftKey ? bigStep : e.altKey ? smallStep : step
+                const num = parseStr(valueX + amount)
+                setLocalX(num.toFixed(dp))
+                onChange([+num.toFixed(dp), valueY, valueZ])
+              }
+              if (e.code === 'ArrowDown') {
+                const amount = e.shiftKey ? bigStep : e.altKey ? smallStep : step
+                const num = parseStr(valueX - amount)
+                setLocalX(num.toFixed(dp))
+                onChange([+num.toFixed(dp), valueY, valueZ])
+              }
+            }}
+            onFocus={e => {
+              setFocused(true)
+              e.target.select()
+            }}
+            onBlur={e => {
+              setFocused(false)
+              // if blank, set back to original
+              if (localX === '') {
+                setLocalX(valueX.toFixed(dp))
+                return
+              }
+              // otherwise run through pipeline
+              const num = parseStr(localX)
               setLocalX(num.toFixed(dp))
               onChange([+num.toFixed(dp), valueY, valueZ])
-            }
-            if (e.code === 'ArrowDown') {
-              const amount = e.shiftKey ? bigStep : e.altKey ? smallStep : step
-              const num = parseStr(valueX - amount)
-              setLocalX(num.toFixed(dp))
-              onChange([+num.toFixed(dp), valueY, valueZ])
-            }
-          }}
-          onFocus={e => {
-            setFocused(true)
-            e.target.select()
-          }}
-          onBlur={e => {
-            setFocused(false)
-            // if blank, set back to original
-            if (localX === '') {
-              setLocalX(valueX.toFixed(dp))
-              return
-            }
-            // otherwise run through pipeline
-            const num = parseStr(localX)
-            setLocalX(num.toFixed(dp))
-            onChange([+num.toFixed(dp), valueY, valueZ])
-          }}
-        />
-        <input
-          type='text'
-          value={localY}
-          onChange={e => setLocalY(e.target.value)}
-          onKeyDown={e => {
-            if (e.code === 'Enter') {
-              e.preventDefault()
-              e.target.blur()
-            }
-            if (e.code === 'ArrowUp') {
-              const amount = e.shiftKey ? bigStep : e.altKey ? smallStep : step
-              const num = parseStr(valueY + amount)
+            }}
+          />
+        </div>
+        <div className='fieldvec3-input'>
+          <span className='fieldvec3-axis'>Y</span>
+          <input
+            type='text'
+            value={localY}
+            onChange={e => setLocalY(e.target.value)}
+            onKeyDown={e => {
+              if (e.code === 'Enter') {
+                e.preventDefault()
+                e.target.blur()
+              }
+              if (e.code === 'ArrowUp') {
+                const amount = e.shiftKey ? bigStep : e.altKey ? smallStep : step
+                const num = parseStr(valueY + amount)
+                setLocalY(num.toFixed(dp))
+                onChange([valueX, +num.toFixed(dp), valueZ])
+              }
+              if (e.code === 'ArrowDown') {
+                const amount = e.shiftKey ? bigStep : e.altKey ? smallStep : step
+                const num = parseStr(valueY - amount)
+                setLocalY(num.toFixed(dp))
+                onChange([valueX, +num.toFixed(dp), valueZ])
+              }
+            }}
+            onFocus={e => {
+              setFocused(true)
+              e.target.select()
+            }}
+            onBlur={e => {
+              setFocused(false)
+              // if blank, set back to original
+              if (localY === '') {
+                setLocalY(valueY.toFixed(dp))
+                return
+              }
+              // otherwise run through pipeline
+              const num = parseStr(localY)
               setLocalY(num.toFixed(dp))
               onChange([valueX, +num.toFixed(dp), valueZ])
-            }
-            if (e.code === 'ArrowDown') {
-              const amount = e.shiftKey ? bigStep : e.altKey ? smallStep : step
-              const num = parseStr(valueY - amount)
-              setLocalY(num.toFixed(dp))
-              onChange([valueX, +num.toFixed(dp), valueZ])
-            }
-          }}
-          onFocus={e => {
-            setFocused(true)
-            e.target.select()
-          }}
-          onBlur={e => {
-            setFocused(false)
-            // if blank, set back to original
-            if (localY === '') {
-              setLocalY(valueY.toFixed(dp))
-              return
-            }
-            // otherwise run through pipeline
-            const num = parseStr(localY)
-            setLocalY(num.toFixed(dp))
-            onChange([valueX, +num.toFixed(dp), valueZ])
-          }}
-        />
-        <input
-          type='text'
-          value={localZ}
-          onChange={e => setLocalZ(e.target.value)}
-          onKeyDown={e => {
-            if (e.code === 'Enter') {
-              e.preventDefault()
-              e.target.blur()
-            }
-            if (e.code === 'ArrowUp') {
-              const amount = e.shiftKey ? bigStep : e.altKey ? smallStep : step
-              const num = parseStr(valueZ + amount)
+            }}
+          />
+        </div>
+        <div className='fieldvec3-input'>
+          <span className='fieldvec3-axis'>Z</span>
+          <input
+            type='text'
+            value={localZ}
+            onChange={e => setLocalZ(e.target.value)}
+            onKeyDown={e => {
+              if (e.code === 'Enter') {
+                e.preventDefault()
+                e.target.blur()
+              }
+              if (e.code === 'ArrowUp') {
+                const amount = e.shiftKey ? bigStep : e.altKey ? smallStep : step
+                const num = parseStr(valueZ + amount)
+                setLocalZ(num.toFixed(dp))
+                onChange([valueX, valueY, +num.toFixed(dp)])
+              }
+              if (e.code === 'ArrowDown') {
+                const amount = e.shiftKey ? bigStep : e.altKey ? smallStep : step
+                const num = parseStr(valueZ - amount)
+                setLocalZ(num.toFixed(dp))
+                onChange([valueX, valueY, +num.toFixed(dp)])
+              }
+            }}
+            onFocus={e => {
+              setFocused(true)
+              e.target.select()
+            }}
+            onBlur={e => {
+              setFocused(false)
+              // if blank, set back to original
+              if (localZ === '') {
+                setLocalZ(valueZ.toFixed(dp))
+                return
+              }
+              // otherwise run through pipeline
+              const num = parseStr(localZ)
               setLocalZ(num.toFixed(dp))
               onChange([valueX, valueY, +num.toFixed(dp)])
-            }
-            if (e.code === 'ArrowDown') {
-              const amount = e.shiftKey ? bigStep : e.altKey ? smallStep : step
-              const num = parseStr(valueZ - amount)
-              setLocalZ(num.toFixed(dp))
-              onChange([valueX, valueY, +num.toFixed(dp)])
-            }
-          }}
-          onFocus={e => {
-            setFocused(true)
-            e.target.select()
-          }}
-          onBlur={e => {
-            setFocused(false)
-            // if blank, set back to original
-            if (localZ === '') {
-              setLocalZ(valueZ.toFixed(dp))
-              return
-            }
-            // otherwise run through pipeline
-            const num = parseStr(localZ)
-            setLocalZ(num.toFixed(dp))
-            onChange([valueX, valueY, +num.toFixed(dp)])
-          }}
-        />
+            }}
+          />
+        </div>
       </div>
     </label>
   )

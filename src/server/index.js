@@ -4,6 +4,8 @@ import './bootstrap'
 
 import fs from 'fs-extra'
 import path from 'path'
+import { exec } from 'child_process'
+import { promisify } from 'util'
 import Fastify from 'fastify'
 import ws from '@fastify/websocket'
 import cors from '@fastify/cors'
@@ -17,6 +19,8 @@ import { Storage } from './Storage'
 import { assets } from './assets'
 import { collections } from './collections'
 import { cleaner } from './cleaner'
+
+const execAsync = promisify(exec)
 
 const rootDir = path.join(__dirname, '../')
 const worldDir = path.join(rootDir, process.env.WORLD)
@@ -91,15 +95,13 @@ await world.init({
   collections: collections.list,
 })
 
-fastify.register(cors)
+fastify.register(cors, {
+  origin: process.env.CORS_ORIGIN || true,
+})
 fastify.register(compress, {
   // Only compress text-based files, exclude binary and already compressed formats
   customTypes: /text\/|application\/json|application\/javascript|text\/css/,
   encodings: ['gzip', 'deflate'],
-  brotli: {
-    quality: 4,
-    lgwin: 22
-  },
   inflateIfDeflated: false,
   // Skip compression based on file extension or request path
   skipOnPath(req) {
@@ -276,6 +278,44 @@ fastify.post('/api/upload', async (req, reply) => {
 fastify.get('/api/upload-check', async (req, reply) => {
   const exists = await assets.exists(req.query.filename)
   return { exists }
+})
+
+fastify.get('/api/backup', async (req, reply) => {
+  if (!process.env.ADMIN_CODE || req.query.adminCode !== process.env.ADMIN_CODE) {
+    return reply.code(401).send({ error: 'Invalid admin code' })
+  }
+  const zipPath = path.join(rootDir, 'world-backup.zip')
+  // remove old zip if exists
+  await fs.remove(zipPath)
+  // create zip from world directory and wait for it to finish
+  await execAsync(`zip -r "${zipPath}" .`, { cwd: worldDir })
+  // read the completed file
+  const buffer = await fs.readFile(zipPath)
+  // clean up
+  await fs.remove(zipPath)
+  // send it
+  reply.type('application/zip')
+  reply.header('Content-Disposition', 'attachment; filename="world-backup.zip"')
+  return reply.send(buffer)
+})
+
+fastify.post('/api/restore', async (req, reply) => {
+  if (!process.env.ADMIN_CODE || req.query.adminCode !== process.env.ADMIN_CODE) {
+    return reply.code(401).send({ error: 'Invalid admin code' })
+  }
+  const mp = await req.file()
+  const zipPath = path.join(rootDir, 'restore-upload.zip')
+  // save uploaded file
+  const chunks = []
+  for await (const chunk of mp.file) {
+    chunks.push(chunk)
+  }
+  await fs.writeFile(zipPath, Buffer.concat(chunks))
+  // clear and restore
+  await fs.emptyDir(worldDir)
+  await execAsync(`unzip -o "${zipPath}" -d "${worldDir}"`)
+  await fs.remove(zipPath)
+  return { success: true, message: 'World restored. Restart server to apply changes.' }
 })
 
 fastify.get('/health', async (request, reply) => {

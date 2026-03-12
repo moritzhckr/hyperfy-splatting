@@ -94,6 +94,7 @@ export function ScriptEditor({ app, onHandle }) {
         scrollBeyondLastLine: true,
         lineNumbers: 'on',
         minimap: { enabled: false },
+        // wordWrap: 'on',
         automaticLayout: true,
         tabSize: 2,
         insertSpaces: true,
