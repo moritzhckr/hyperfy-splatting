@@ -7,7 +7,7 @@ import { detectSplatFormat, getSparkFileType } from '../utils/splatFormats'
 import { getSparkModule } from '../utils/sparkCache'
 
 // Spark.js will be dynamically imported on client-side only
-// SparkRenderer attached to camera for float16 precision fix
+// Spark 2.0: SparkRenderer no longer needs camera attachment (auto camera-relative)
 let sparkRendererInstance = null
 
 // Pre-computed 180° rotation quaternion around X-axis for splat orientation fix
@@ -347,12 +347,8 @@ export class Stage extends System {
   }
 
   // Helper: Setup common splat mesh properties
-  _setupSplatMesh(splatMesh, { node, matrix, color, opacity, splatScale, lodRenderScale }) {
-    // Apply LOD render scale
-    if (splatMesh.lodRenderScale !== undefined) {
-      splatMesh.lodRenderScale = lodRenderScale || getDefaultLodRenderScale()
-    }
-
+  // Note: Spark 2.0 - lodRenderScale is now on SparkRenderer, not SplatMesh
+  _setupSplatMesh(splatMesh, { node, matrix, color, opacity, splatScale }) {
     // Apply user scale
     if (splatScale && splatScale !== 1.0) {
       splatMesh.scale.setScalar(splatScale)
@@ -412,10 +408,11 @@ export class Stage extends System {
       updateSplatScale: (newScale) => {
         splatMesh.scale.setScalar(newScale)
       },
+      // Note: Spark 2.0 - lodRenderScale is now global on SparkRenderer
+      // Use world.stage.setLodRenderScale() instead
       updateLodRenderScale: (newLodRenderScale) => {
-        if (splatMesh.lodRenderScale !== undefined) {
-          splatMesh.lodRenderScale = newLodRenderScale
-        }
+        // Deprecated: LOD is now controlled at renderer level
+        console.warn('[SplatHandle] lodRenderScale is now global - use world.stage.setLodRenderScale()')
       },
       destroy: () => {
         // Clean up SOGS load interval if exists
@@ -447,21 +444,22 @@ export class Stage extends System {
       // Dynamically import Spark.js only on client using cached import
       const { SplatMesh, SparkRenderer } = await getSparkModule()
 
-      // Create SparkRenderer singleton and attach to camera for float16 precision fix
+      // Create SparkRenderer singleton (Spark 2.0: no camera attachment needed)
       if (!sparkRendererInstance && this.world.camera && this.world.graphics?.renderer) {
-        sparkRendererInstance = new SparkRenderer({
-          renderer: this.world.graphics.renderer
-        })
-        this.world.camera.add(sparkRendererInstance)
-
-        // Reduce maxStdDev on mobile/Quest for better performance
         const tier = getDevicePerformanceTier()
-        if (tier === 'quest') {
-          sparkRendererInstance.maxStdDev = 1.8
-        } else if (tier === 'mobile') {
-          sparkRendererInstance.maxStdDev = 1.5
-        }
-        console.log(`✅ SparkRenderer attached (tier: ${tier}, maxStdDev: ${sparkRendererInstance.maxStdDev}, lodScale: ${getDefaultLodRenderScale()})`)
+
+        // Spark 2.0: LOD settings are now on Renderer level
+        sparkRendererInstance = new SparkRenderer({
+          renderer: this.world.graphics.renderer,
+          enableLod: true,
+          lodRenderScale: getDefaultLodRenderScale(),
+          maxStdDev: tier === 'quest' ? 1.8 : (tier === 'mobile' ? 1.5 : Math.sqrt(8))
+        })
+
+        // Spark 2.0: Add to scene instead of camera (auto camera-relative rendering)
+        this.scene.add(sparkRendererInstance)
+
+        console.log(`✅ SparkRenderer initialized (Spark 2.0, tier: ${tier}, enableLod: true, lodRenderScale: ${getDefaultLodRenderScale()})`)
       }
 
       // Detect file type from source URL using shared utility
@@ -470,14 +468,14 @@ export class Stage extends System {
       const fileType = ext ? getSparkFileType(ext) : null
 
       const isSOGS = fileType === 'pcsogs' || fileType === 'pcsogszip'
-      const setupOptions = { node, matrix, color, opacity, splatScale, lodRenderScale }
+      // Spark 2.0: lodRenderScale is now on SparkRenderer, not per-SplatMesh
+      const setupOptions = { node, matrix, color, opacity, splatScale }
 
       // SOGS/ZIP: Use URL-based loading (Spark.js handles decompression)
       if (isSOGS) {
         const splatMesh = new SplatMesh({
           url: url,
-          fileType: fileType,
-          lodRenderScale: lodRenderScale || getDefaultLodRenderScale()
+          fileType: fileType
         })
 
         const id = this._setupSplatMesh(splatMesh, setupOptions)
@@ -535,6 +533,23 @@ export class Stage extends System {
     return this.raycastHits
   }
 
+  // Spark 2.0: Global LOD control methods
+  setLodRenderScale(scale) {
+    if (sparkRendererInstance) {
+      sparkRendererInstance.lodRenderScale = Math.max(0.1, scale)
+    }
+  }
+
+  getLodRenderScale() {
+    return sparkRendererInstance?.lodRenderScale || getDefaultLodRenderScale()
+  }
+
+  setLodSplatCount(count) {
+    if (sparkRendererInstance) {
+      sparkRendererInstance.lodSplatCount = count
+    }
+  }
+
   destroy() {
     this.models.clear()
     // Clean up splat meshes
@@ -550,6 +565,13 @@ export class Stage extends System {
       }
     }
     this.splatMeshes.clear()
+
+    // Clean up SparkRenderer
+    if (sparkRendererInstance) {
+      this.scene.remove(sparkRendererInstance)
+      sparkRendererInstance.dispose?.()
+      sparkRendererInstance = null
+    }
   }
 }
 

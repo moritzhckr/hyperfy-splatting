@@ -64,8 +64,7 @@ export function getSparkFileType(ext) {
   const format = ext?.toLowerCase()
   
   switch (format) {
-    case 'ksplat':
-      return 'splat' // Spark.js maps ksplat to splat
+    // Spark 2.0: ksplat is now native, no mapping needed
     case 'sog':
     case 'sogs':
     case 'zip':

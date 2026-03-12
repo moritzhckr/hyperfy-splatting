@@ -406,8 +406,8 @@ export class ClientLoader extends System {
           const blobUrl = URL.createObjectURL(blob)
 
           return new Promise((resolve, reject) => {
-            // Map ksplat to splat for Spark.js compatibility
-            const sparkFileType = format === 'ksplat' ? 'splat' : format
+            // Spark 2.0: ksplat is now a native file type, no mapping needed
+            const sparkFileType = format
             console.log('   sparkFileType:', sparkFileType)
 
             // CRITICAL FIX: Force 10x scale to avoid float precision artifacts (consistent with insert method)

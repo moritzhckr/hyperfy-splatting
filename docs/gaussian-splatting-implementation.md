@@ -2,7 +2,13 @@
 
 ## Overview
 
-Integration of 3D Gaussian Splatting into Hyperfy using [Spark.js](https://sparkjs.dev/) (v0.1.10+).
+Integration of 3D Gaussian Splatting into Hyperfy using [Spark.js](https://sparkjs.dev/) (v2.0.0-preview).
+
+> **Spark.js 2.0 Migration Complete** (March 2026)
+> - Upgraded from Spark.js 0.1.10 to 2.0.0-preview
+> - THREE.js upgraded to r179+
+> - postprocessing upgraded to 7.x
+> - LOD is now global on SparkRenderer instead of per-SplatMesh
 
 ---
 

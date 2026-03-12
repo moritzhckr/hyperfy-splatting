@@ -307,19 +307,23 @@ export class GaussianSplat extends Node {
     }
   }
 
+  // Spark 2.0: lodRenderScale is now global on SparkRenderer
+  // Kept for backwards compatibility but deprecated
   get lodRenderScale() {
-    return this._lodRenderScale
+    // Return the global LOD scale from stage if available
+    return this.ctx?.world?.stage?.getLodRenderScale?.() || this._lodRenderScale
   }
 
   set lodRenderScale(value = defaults.lodRenderScale) {
     if (!isNumber(value)) {
       throw new Error('[gaussiansplat] lodRenderScale must be a number')
     }
-    value = Math.max(0.1, value) // Minimum 0.1
-    if (this._lodRenderScale === value) return
+    value = Math.max(0.1, value)
     this._lodRenderScale = value
-    if (this.handle && this.handle.updateLodRenderScale) {
-      this.handle.updateLodRenderScale(value)
+    // Spark 2.0: LOD is now global - set on stage instead
+    if (this.ctx?.world?.stage?.setLodRenderScale) {
+      console.warn('[gaussiansplat] lodRenderScale is now global in Spark 2.0 - affecting all splats')
+      this.ctx.world.stage.setLodRenderScale(value)
     }
   }
 
