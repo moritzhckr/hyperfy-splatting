@@ -261,7 +261,7 @@ export class ClientBuilder extends System {
     }
     // unlink
     if (this.control.keyU.pressed && this.beam.active) {
-      const entity = this.selected || this.getEntityAtBeam()
+      const entity = this.selected || this._getClosestEntityAtBeam()
       if (entity?.isApp) {
         this.select(null)
         // duplicate the blueprint
@@ -294,7 +294,7 @@ export class ClientBuilder extends System {
     }
     // pin/unpin
     if (this.control.keyP.pressed && this.beam.active) {
-      const entity = this.selected || this.getEntityAtBeam()
+      const entity = this.selected || this._getClosestEntityAtBeam()
       if (entity?.isApp) {
         entity.data.pinned = !entity.data.pinned
         this.world.network.send('entityModified', {
@@ -330,7 +330,7 @@ export class ClientBuilder extends System {
     // left-click place/select/reselect/deselect
     if (this.xrMenu && this.xrMenu.move) {
       this.xrMenu.move = false
-      const entity = this.getEntityAtBeam()
+      const entity = this._getClosestEntityAtBeam()
       if (entity?.isApp && !entity.data.pinned && !entity.blueprint.scene) {
         this.select(entity)
       }
@@ -421,7 +421,7 @@ export class ClientBuilder extends System {
       duplicate = true
     }
     if (duplicate) {
-      const entity = this.selected || this.getEntityAtBeam()
+      const entity = this.selected || this._getClosestEntityAtBeam()
       if (entity?.isApp && !entity.blueprint.scene) {
         let blueprintId = entity.data.blueprint
         // if unique, we also duplicate the blueprint
@@ -481,7 +481,8 @@ export class ClientBuilder extends System {
       destroy = true
     }
     if (destroy) {
-      const entity = this.selected || this.getEntityAtBeam()
+      // Use _getClosestEntityAtBeam to include splats in delete raycast
+      const entity = this.selected || this._getClosestEntityAtBeam()
       if (entity?.isApp && !entity.data.pinned && !entity.blueprint.scene) {
         this.select(null)
         this.addUndo({
@@ -721,20 +722,19 @@ export class ClientBuilder extends System {
     if (this.selected && this.selected !== app) {
       if (!this.selected.dead && this.selected.data.mover === this.world.network.id) {
         const app = this.selected
-        app.data.mover = null
-        app.data.position = app.root.position.toArray()
-        app.data.quaternion = app.root.quaternion.toArray()
-        app.data.scale = app.root.scale.toArray()
-        app.data.state = {}
+        const modifyData = {
+          mover: null,
+          position: app.root.position.toArray(),
+          quaternion: app.root.quaternion.toArray(),
+          scale: app.root.scale.toArray(),
+          state: {},
+        }
+        // Use modify() to properly handle mode change and apply transforms without rebuild
+        app.modify(modifyData)
         this.world.network.send('entityModified', {
           id: app.data.id,
-          mover: null,
-          position: app.data.position,
-          quaternion: app.data.quaternion,
-          scale: app.data.scale,
-          state: app.data.state,
+          ...modifyData,
         })
-        app.build()
       }
       this.selected = null
       if (this.mode === 'grab') {
@@ -755,8 +755,8 @@ export class ClientBuilder extends System {
         scale: app.data.scale.slice(),
       })
       if (app.data.mover !== this.world.network.id) {
-        app.data.mover = this.world.network.id
-        app.build()
+        // Use modify() to properly handle mode change without rebuild
+        app.modify({ mover: this.world.network.id })
         this.world.network.send('entityModified', { id: app.data.id, mover: app.data.mover })
       }
       this.selected = app
@@ -1181,8 +1181,6 @@ export class ClientBuilder extends System {
       if (ext === 'spz') {
         console.warn('⚠️ SPZ files have limited support. PLY and KSPLAT formats work best.')
       }
-      if (ext === 'zip') {
-      }
       this.addSplat(file, transform)
     }
   }
@@ -1261,21 +1259,6 @@ app.configure([
 
 // Only run rendering logic on client
 if (world.isClient) {
-
-// Create default cube (always visible, like Model.hyp)
-const defaultCube = app.create('prim', {
-  type: 'box',
-  position: [0, 0.5, 0], // Lift up half height so it sits on ground
-  scale: [1, 1, 1],
-  color: '#ffaa00',
-  opacity: 0.3,
-  transparent: true,
-  castShadow: false,
-  receiveShadow: false,
-  frustumCulled: true
-})
-// Always add the default cube
-app.add(defaultCube)
 
 // App state
 const state = {

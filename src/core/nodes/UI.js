@@ -142,6 +142,7 @@ export class UI extends Node {
       this.mesh.matrixAutoUpdate = false
       this.mesh.matrixWorldAutoUpdate = false
       this.mesh.matrixWorld.copy(this.matrixWorld)
+      this.mesh.renderOrder = 100 // Render after Gaussian splats (renderOrder: -1000)
       this.ctx.world.stage.scene.add(this.mesh)
       if (this._pointerEvents) {
         this.sItem = {

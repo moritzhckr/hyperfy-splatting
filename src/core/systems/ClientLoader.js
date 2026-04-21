@@ -614,8 +614,6 @@ export class ClientLoader extends System {
           }
 
           return new SplatMesh(splatMeshOptions)
-
-          return splatMesh
         }
 
         const splatData = {

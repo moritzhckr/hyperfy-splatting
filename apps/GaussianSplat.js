@@ -58,21 +58,6 @@ app.configure([
 // Only run rendering logic on client
 if (world.isClient) {
 
-// Create default cube (always visible, like Model.hyp)
-const defaultCube = app.create('prim', {
-  type: 'box',
-  position: [0, 0.5, 0], // Lift up half height so it sits on ground
-  scale: [1, 1, 1],
-  color: '#ffaa00',
-  opacity: 0.3,
-  transparent: true,
-  castShadow: false,
-  receiveShadow: false,
-  frustumCulled: true
-})
-// Always add the default cube
-app.add(defaultCube)
-
 // App state
 const state = {
   splat: null,

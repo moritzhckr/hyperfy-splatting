@@ -293,6 +293,10 @@ export class App extends Entity {
 
   modify(data) {
     let rebuild
+    // Track if we're ending a move (mover going from set to null)
+    // In this case, position/quaternion/scale are final values and should NOT trigger rebuild
+    let endingMove = false
+
     if (data.hasOwnProperty('blueprint')) {
       this.data.blueprint = data.blueprint
       rebuild = true
@@ -302,13 +306,41 @@ export class App extends Entity {
       rebuild = true
     }
     if (data.hasOwnProperty('mover')) {
+      const wasMover = !!this.data.mover
+      const isMover = !!data.mover
       this.data.mover = data.mover
-      rebuild = true
+      // Track if we're ending a move - position/quaternion/scale won't need rebuild
+      endingMove = wasMover && !isMover
+      // Handle mover change without full rebuild (expensive for splats)
+      if (wasMover !== isMover) {
+        if (isMover) {
+          this.mode = Modes.MOVING
+          this.world.setHot(this, true)
+          // Collect snap points
+          this.snaps = []
+          this.root?.traverse(node => {
+            if (node.name === 'snap') {
+              this.snaps.push(node.worldPosition)
+            }
+          })
+        } else {
+          this.mode = Modes.ACTIVE
+          // Only remove from hot if no hot events are bound
+          const hasHotEvents = hotEventNames.some(name => this.listeners[name]?.length > 0)
+          if (!hasHotEvents) {
+            this.world.setHot(this, false)
+          }
+          this.snaps = []
+        }
+      }
     }
     if (data.hasOwnProperty('position')) {
       this.data.position = data.position
       if (this.data.mover) {
         this.networkPos.pushArray(data.position)
+      } else if (endingMove && this.root) {
+        // Ending a move - apply position directly without rebuild
+        this.root.position.fromArray(data.position)
       } else {
         rebuild = true
       }
@@ -317,6 +349,9 @@ export class App extends Entity {
       this.data.quaternion = data.quaternion
       if (this.data.mover) {
         this.networkQuat.pushArray(data.quaternion)
+      } else if (endingMove && this.root) {
+        // Ending a move - apply quaternion directly without rebuild
+        this.root.quaternion.fromArray(data.quaternion)
       } else {
         rebuild = true
       }
@@ -325,6 +360,9 @@ export class App extends Entity {
       this.data.scale = data.scale
       if (this.data.mover) {
         this.networkSca.pushArray(data.scale)
+      } else if (endingMove && this.root) {
+        // Ending a move - apply scale directly without rebuild
+        this.root.scale.fromArray(data.scale)
       } else {
         rebuild = true
       }
@@ -334,7 +372,10 @@ export class App extends Entity {
     }
     if (data.hasOwnProperty('state')) {
       this.data.state = data.state
-      rebuild = true
+      // Don't rebuild if ending move (state is just being cleared)
+      if (!endingMove) {
+        rebuild = true
+      }
     }
     if (rebuild) {
       this.build()

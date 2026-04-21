@@ -17,6 +17,13 @@ const _tempPosition = new THREE.Vector3()
 const _tempQuaternion = new THREE.Quaternion()
 const _tempScale = new THREE.Vector3()
 
+// Render Order for Transparent Objects (Three.js renders lower values first):
+// -1000: Gaussian Splats (SparkRenderer, SplatMesh) - render first so other transparents appear on top
+//     0: Standard transparent meshes (GLTF, etc.) - default Three.js behavior
+//   100: UI elements - render on top of splats and meshes
+//   999: Action highlights (ClientActions)
+//  9999: Nametags - always on top
+
 // Device-based performance settings
 const getDevicePerformanceTier = () => {
   if (typeof window === 'undefined') return 'desktop'
@@ -386,6 +393,8 @@ export class Stage extends System {
 
     // Store node reference for raycasting
     splatMesh._hyperfyNode = node
+    // Render splats early in transparent pass so UI/transparent meshes render on top
+    splatMesh.renderOrder = -1000
     this.scene.add(splatMesh)
 
     // Store reference
@@ -481,6 +490,10 @@ export class Stage extends System {
           lodSplatScale: lodSplatScale,
           maxStdDev: maxStdDev
         })
+
+        // Render splats early in transparent pass so UI/transparent meshes render on top
+        // Three.js renders lower renderOrder first in the transparent pass
+        sparkRendererInstance.renderOrder = -1000
 
         this.scene.add(sparkRendererInstance)
       }
