@@ -44,14 +44,14 @@ app.configure([
     hint: 'Overall transparency of the splats'
   },
   {
-    key: 'lodRenderScale',
+    key: 'lodSplatScale',
     type: 'range',
-    label: 'LOD Render Scale',
+    label: 'LOD Splat Scale',
     initial: 1.0,
     min: 0.1,
     max: 5.0,
     step: 0.1,
-    hint: 'LOD quality control - higher = more culling (better performance), lower = more detail'
+    hint: 'LOD budget multiplier - higher = more splats (better quality), lower = fewer splats (better performance)'
   },
 ])
 
@@ -100,14 +100,14 @@ function createSplat() {
       linked: false,
       color: props.color || '#ffffff',
       opacity: props.opacity !== undefined ? props.opacity : 1.0,
-      lodRenderScale: props.lodRenderScale !== undefined ? props.lodRenderScale : 1.0
+      lodSplatScale: props.lodSplatScale !== undefined ? props.lodSplatScale : 1.0
     })
 
     app.add(state.splat)
     state.lastSplatFile = props.splatFile
     state.lastColor = props.color
     state.lastOpacity = props.opacity
-    state.lastLodRenderScale = props.lodRenderScale
+    state.lastLodRenderScale = props.lodSplatScale
   } catch (error) {
     console.error('❌ Failed to create splat:', error)
   }
@@ -168,12 +168,12 @@ function updateOpacity() {
 }
 
 function updateLodRenderScale() {
-  if (state.splat && typeof props.lodRenderScale === 'number' && props.lodRenderScale !== state.lastLodRenderScale) {
+  if (state.splat && typeof props.lodSplatScale === 'number' && props.lodSplatScale !== state.lastLodRenderScale) {
     try {
-      state.splat.lodRenderScale = props.lodRenderScale
-      state.lastLodRenderScale = props.lodRenderScale
+      state.splat.lodSplatScale = props.lodSplatScale
+      state.lastLodRenderScale = props.lodSplatScale
     } catch (error) {
-      console.error('❌ Failed to update LOD render scale:', error)
+      console.error('❌ Failed to update LOD splat scale:', error)
     }
   }
 }

@@ -1,6 +1,7 @@
 import { isBoolean, isNumber, isString } from 'lodash-es'
 import { Node } from './Node'
 import { detectSplatFormat } from '../utils/splatFormats'
+import { createNode } from '../extras/createNode'
 
 const defaults = {
   src: null,
@@ -11,7 +12,7 @@ const defaults = {
   color: '#ffffff',
   opacity: 1.0,
   splatScale: 1.0,
-  lodRenderScale: 1.0, // NEW: LOD control - higher = more culling
+  lodSplatScale: 1.0, // Spark 2.0: LOD budget multiplier (0.5 = half, 1.0 = full, 2.0 = double)
 }
 
 const sortModes = ['auto', 'distance', 'none']
@@ -29,12 +30,18 @@ export class GaussianSplat extends Node {
     this._color = isString(data.color) ? data.color : defaults.color
     this._opacity = isNumber(data.opacity) ? Math.max(0, Math.min(1, data.opacity)) : defaults.opacity
     this._splatScale = isNumber(data.splatScale) ? data.splatScale : defaults.splatScale
-    this._lodRenderScale = isNumber(data.lodRenderScale) ? Math.max(0.1, data.lodRenderScale) : defaults.lodRenderScale
+    this._lodSplatScale = isNumber(data.lodSplatScale) ? Math.max(0.1, data.lodSplatScale) : defaults.lodSplatScale
 
     this.loadingState = 'idle' // 'idle', 'loading', 'loaded', 'error'
+    this.loadingProgress = 0
     this.needsRebuild = false
     this.handle = null
     this.handleCreationId = 0 // Unique ID for each handle creation attempt (prevents ghost splats)
+
+    // Loading UI elements
+    this.loadingUI = null
+    this.loadingText = null
+    this.loadingStartTime = null
   }
 
   mount() {
@@ -61,9 +68,103 @@ export class GaussianSplat extends Node {
     // Increment creation ID to invalidate any pending handle creation
     this.handleCreationId++
 
+    // Remove loading UI
+    this._removeLoadingUI()
+
     // Destroy existing handle
     this.handle?.destroy()
     this.handle = null
+  }
+
+  _createLoadingUI() {
+    if (this.loadingUI || this.ctx.world.network.isServer) return
+
+    this.loadingStartTime = Date.now()
+
+    // Create UI container with billboard
+    this.loadingUI = createNode('ui', {
+      width: 160,
+      height: 120,
+      size: 0.008,
+      position: [0, 1.5, 0],
+      billboard: 'y',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'flex-start',
+      padding: [0, 0, 2, 0],
+    })
+
+    // Create bubble background
+    const bubble = createNode('uiview', {
+      backgroundColor: 'rgba(0,0,0,0.9)',
+      borderRadius: 12,
+      padding: 12,
+      flexDirection: 'column',
+      alignItems: 'center',
+    })
+
+    // Create title text
+    const title = createNode('uitext', {
+      value: 'Loading Splat',
+      fontSize: 12,
+      fontWeight: 500,
+      color: 'white',
+      textAlign: 'center',
+      margin: [0, 0, 6, 0],
+    })
+
+    // Create progress text
+    this.loadingText = createNode('uitext', {
+      value: '0%',
+      fontSize: 10,
+      fontWeight: 300,
+      color: 'rgba(255,255,255,0.7)',
+      textAlign: 'center',
+    })
+
+    bubble.add(title)
+    bubble.add(this.loadingText)
+    this.loadingUI.add(bubble)
+
+    // Create line
+    const line = createNode('uiview', {
+      width: 1,
+      backgroundColor: 'rgba(255,255,255,0.5)',
+      flexGrow: 1,
+    })
+    this.loadingUI.add(line)
+
+    // Create dot
+    const dot = createNode('uiview', {
+      width: 4,
+      height: 4,
+      borderRadius: 4,
+      backgroundColor: 'white',
+    })
+    this.loadingUI.add(dot)
+
+    // Add to this node
+    this.add(this.loadingUI)
+    if (this.ctx) {
+      this.loadingUI.activate(this.ctx)
+    }
+  }
+
+  _updateLoadingUI(progress) {
+    if (!this.loadingText) return
+    this.loadingProgress = progress
+    const elapsed = ((Date.now() - this.loadingStartTime) / 1000).toFixed(0)
+    this.loadingText.value = `${Math.round(progress * 100)}% · ${elapsed}s`
+  }
+
+  _removeLoadingUI() {
+    if (this.loadingUI) {
+      this.loadingUI.deactivate()
+      this.remove(this.loadingUI)
+      this.loadingUI = null
+      this.loadingText = null
+      this.loadingStartTime = null
+    }
   }
 
   async loadSplat() {
@@ -77,6 +178,7 @@ export class GaussianSplat extends Node {
     }
 
     this.loadingState = 'loading'
+    this._createLoadingUI()
 
     try {
       // Use Hyperfy's standard loader system
@@ -100,9 +202,13 @@ export class GaussianSplat extends Node {
       if (this.mounted && !this.ctx.world.network.isServer) {
         await this.createSplatHandle()
       }
+
+      // Remove loading UI after handle is created
+      this._removeLoadingUI()
     } catch (error) {
       console.error('❌ [GaussianSplat] Loading failed:', error)
       this.loadingState = 'error'
+      this._removeLoadingUI()
     }
   }
 
@@ -150,13 +256,16 @@ export class GaussianSplat extends Node {
       color: this._color,
       opacity: this._opacity,
       splatScale: this._splatScale,
-      lodRenderScale: this._lodRenderScale
+      lodSplatScale: this._lodSplatScale,
+      onProgress: (event) => {
+        if (event.lengthComputable) {
+          this._updateLoadingUI(event.loaded / event.total)
+        }
+      }
     })
 
     // Check if this creation was invalidated while we were waiting
     if (creationId !== this.handleCreationId) {
-      // This handle is stale - destroy it immediately to prevent ghost splat
-      console.log('🗑️ [GaussianSplat] Destroying stale handle (creation invalidated)')
       newHandle?.destroy()
       return
     }
@@ -175,7 +284,7 @@ export class GaussianSplat extends Node {
     this._color = source._color
     this._opacity = source._opacity
     this._splatScale = source._splatScale
-    this._lodRenderScale = source._lodRenderScale
+    this._lodSplatScale = source._lodSplatScale
     this.loadingState = source.loadingState
     return this
   }
@@ -307,23 +416,21 @@ export class GaussianSplat extends Node {
     }
   }
 
-  // Spark 2.0: lodRenderScale is now global on SparkRenderer
-  // Kept for backwards compatibility but deprecated
-  get lodRenderScale() {
+  // Spark 2.0: lodSplatScale is now global on SparkRenderer
+  get lodSplatScale() {
     // Return the global LOD scale from stage if available
-    return this.ctx?.world?.stage?.getLodRenderScale?.() || this._lodRenderScale
+    return this.ctx?.world?.stage?.getLodSplatScale?.() || this._lodSplatScale
   }
 
-  set lodRenderScale(value = defaults.lodRenderScale) {
+  set lodSplatScale(value = defaults.lodSplatScale) {
     if (!isNumber(value)) {
-      throw new Error('[gaussiansplat] lodRenderScale must be a number')
+      throw new Error('[gaussiansplat] lodSplatScale must be a number')
     }
     value = Math.max(0.1, value)
-    this._lodRenderScale = value
-    // Spark 2.0: LOD is now global - set on stage instead
-    if (this.ctx?.world?.stage?.setLodRenderScale) {
-      console.warn('[gaussiansplat] lodRenderScale is now global in Spark 2.0 - affecting all splats')
-      this.ctx.world.stage.setLodRenderScale(value)
+    this._lodSplatScale = value
+    // Spark 2.0: LOD is global - set on stage
+    if (this.ctx?.world?.stage?.setLodSplatScale) {
+      this.ctx.world.stage.setLodSplatScale(value)
     }
   }
 
@@ -384,11 +491,11 @@ export class GaussianSplat extends Node {
         set splatScale(value) {
           self.splatScale = value
         },
-        get lodRenderScale() {
-          return self.lodRenderScale
+        get lodSplatScale() {
+          return self.lodSplatScale
         },
-        set lodRenderScale(value) {
-          self.lodRenderScale = value
+        set lodSplatScale(value) {
+          self.lodSplatScale = value
         },
       }
       proxy = Object.defineProperties(proxy, Object.getOwnPropertyDescriptors(super.getProxy()))

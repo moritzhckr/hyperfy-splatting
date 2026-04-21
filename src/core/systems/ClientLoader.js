@@ -103,31 +103,17 @@ export class ClientLoader extends System {
 
   remove(type, url) {
     const key = `${type}/${url}`
-    console.log('🗑️ Removing from loader cache:', key)
 
     // For splats: Clean up memory-intensive fileBytes
     const result = this.results.get(key)
     if (result && result.fileBytes) {
-      console.log('🧹 Cleaning up fileBytes memory:', (result.fileBytes.byteLength / 1024 / 1024).toFixed(2), 'MB')
-      // Clear the ArrayBuffer reference to help GC
       result.fileBytes = null
     }
 
-    // Remove from results cache
     this.results.delete(key)
-
-    // Remove from files cache
     url = this.world.resolveURL(url)
     this.files.delete(url)
-
-    // Remove from promises cache if it exists
     this.promises.delete(key)
-
-    // Force garbage collection hint (not guaranteed but helps)
-    if (globalThis.gc) {
-      globalThis.gc()
-    }
-
   }
 
   loadFile = async (url, options = {}) => {
@@ -339,16 +325,13 @@ export class ClientLoader extends System {
       }
       if (type === 'splat') {
         const format = detectSplatFormat(file.name)
-        console.log('📦 [ClientLoader] Loading splat file:', file.name, 'Format:', format, 'Size:', file.size)
 
         // For SPZ: Use Spark.js native handling
         if (format === 'spz') {
-          console.log('🔵 [ClientLoader] Using SPZ path (Spark native)')
           const fileBytes = await file.arrayBuffer()
 
           const createSplatMesh = async (options = {}) => {
             const { SplatMesh } = await getSparkModule()
-            console.log('🔧 [ClientLoader SPZ] Creating via Spark SplatMesh')
 
             const blob = new Blob([fileBytes], { type: 'application/octet-stream' })
             const blobUrl = URL.createObjectURL(blob)
@@ -358,8 +341,9 @@ export class ClientLoader extends System {
                 const splatMesh = new SplatMesh({
                   url: blobUrl,
                   fileType: 'spz',
+                  lod: true,
+                  onProgress: options.onProgress,
                   onLoad: (mesh) => {
-                    console.log('✅ [ClientLoader SPZ] Loaded:', mesh.numSplats, 'splats')
                     URL.revokeObjectURL(blobUrl)
                     resolve(mesh)
                   }
@@ -398,29 +382,22 @@ export class ClientLoader extends System {
         const createSplatMesh = async (options = {}) => {
           const { SplatMesh } = await getSparkModule()
 
-          console.log('🔧 [ClientLoader OTHER] Creating SplatMesh')
-          console.log('   fileBytes length:', fileBytes.byteLength)
-          console.log('   format:', format)
-
           const blob = new Blob([fileBytes], { type: 'application/octet-stream' })
           const blobUrl = URL.createObjectURL(blob)
 
           return new Promise((resolve, reject) => {
-            // Spark 2.0: ksplat is now a native file type, no mapping needed
             const sparkFileType = format
-            console.log('   sparkFileType:', sparkFileType)
 
             // CRITICAL FIX: Force 10x scale to avoid float precision artifacts (consistent with insert method)
             const PRECISION_SCALE = 10.0
 
-            // Build options, ensuring fileType is never undefined
             const splatMeshOptions = {
               ...options,
               url: blobUrl,
               fileType: sparkFileType,
-              scale: PRECISION_SCALE, // Force larger scale to avoid float precision issues
+              scale: PRECISION_SCALE,
+              lod: true,
               onLoad: (mesh) => {
-                console.log('✅ [ClientLoader OTHER] onLoad fired! numSplats:', mesh.numSplats)
                 URL.revokeObjectURL(blobUrl)
                 resolve(mesh)
               }
@@ -428,15 +405,14 @@ export class ClientLoader extends System {
 
             try {
               const splatMesh = new SplatMesh(splatMeshOptions)
+              // Fallback timeout if onLoad doesn't fire
               setTimeout(() => {
                 if (splatMesh.numSplats === 0 && !splatMesh.isInitialized) {
-                  console.warn('⚠️ [ClientLoader OTHER] onLoad not called after 10s')
                   URL.revokeObjectURL(blobUrl)
                   resolve(splatMesh)
                 }
               }, 10000)
             } catch (error) {
-              console.error('❌ [ClientLoader OTHER] Failed:', error)
               URL.revokeObjectURL(blobUrl)
               reject(error)
             }
@@ -598,14 +574,12 @@ export class ClientLoader extends System {
               fileBytes: fileBytes,
               fileType: format,
               fileName: file.name,
-              scale: PRECISION_SCALE, // Force larger scale
+              scale: PRECISION_SCALE,
+              lod: true,
               ...options
             }
 
-
-            const splatMesh = new SplatMesh(splatMeshOptions)
-
-            return splatMesh
+            return new SplatMesh(splatMeshOptions)
           }
 
           const splatData = {
@@ -616,35 +590,30 @@ export class ClientLoader extends System {
             format,
             createSplatMesh,
             getStats() {
-              return {
-                fileBytes: file.size,
-                format
-              }
+              return { fileBytes: file.size, format }
             }
           }
           this.results.set(key, splatData)
           return splatData
         }
 
-        // For other formats: Use fileBytes approach (same as SPZ but without compression handling)
+        // For other formats: Use fileBytes approach
         const fileBytes = await file.arrayBuffer()
 
         const createSplatMesh = async (options = {}) => {
           const { SplatMesh } = await getSparkModule()
-
-          // CRITICAL FIX: Force 10x scale to avoid float precision artifacts
           const PRECISION_SCALE = 10.0
 
           const splatMeshOptions = {
             fileBytes: fileBytes,
             fileType: format,
             fileName: file.name,
-            scale: PRECISION_SCALE, // Force larger scale
+            scale: PRECISION_SCALE,
+            lod: true,
             ...options
           }
 
-
-          const splatMesh = new SplatMesh(splatMeshOptions)
+          return new SplatMesh(splatMeshOptions)
 
           return splatMesh
         }

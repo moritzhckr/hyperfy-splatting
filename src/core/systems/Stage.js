@@ -21,22 +21,44 @@ const _tempScale = new THREE.Vector3()
 const getDevicePerformanceTier = () => {
   if (typeof window === 'undefined') return 'desktop'
 
-  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
-  const isQuest = /OculusBrowser|Quest/i.test(navigator.userAgent)
+  const ua = navigator.userAgent
+  const isQuest = /OculusBrowser|Quest/i.test(ua)
+  const isVisionPro = /Apple.*XR|Vision/i.test(ua)
+  const isIOS = /iPhone|iPad|iPod/i.test(ua)
+  const isAndroid = /Android/i.test(ua)
   const hasLowMemory = navigator.deviceMemory && navigator.deviceMemory < 4
 
   if (isQuest) return 'quest'
-  if (isMobile || hasLowMemory) return 'mobile'
+  if (isVisionPro) return 'visionpro'
+  if (isIOS) return 'ios'
+  if (isAndroid || hasLowMemory) return 'android'
   return 'desktop'
 }
 
-// LOD scale: higher = more aggressive culling = fewer splats rendered
-const getDefaultLodRenderScale = () => {
+// Spark 2.0: lodSplatCount = base number of splats to render (platform budget)
+// These are the official Spark.js recommended defaults
+const getDefaultLodSplatCount = () => {
   const tier = getDevicePerformanceTier()
   switch (tier) {
-    case 'quest': return 6.0    // Very aggressive LOD for Quest
-    case 'mobile': return 5.0   // Very aggressive LOD for mobile
-    default: return 1.0         // Normal LOD for desktop
+    case 'quest': return 500_000       // Quest: 500K splats max
+    case 'visionpro': return 750_000   // Vision Pro: 750K splats
+    case 'android': return 1_000_000   // Android: 1M splats
+    case 'ios': return 1_500_000       // iOS: 1.5M splats
+    default: return 2_500_000          // Desktop: 2.5M splats
+  }
+}
+
+// Spark 2.0: lodSplatScale = multiplier on lodSplatCount
+// Lower = fewer splats (better performance), Higher = more splats (better quality)
+// Default 1.0 uses the full budget, 0.5 uses half, 2.0 uses double
+const getDefaultLodSplatScale = () => {
+  const tier = getDevicePerformanceTier()
+  switch (tier) {
+    case 'quest': return 0.5       // Quest: use 50% of budget for safety
+    case 'visionpro': return 0.8   // Vision Pro: use 80%
+    case 'android': return 0.7     // Android: use 70%
+    case 'ios': return 0.8         // iOS: use 80%
+    default: return 1.0            // Desktop: full budget
   }
 }
 
@@ -347,7 +369,7 @@ export class Stage extends System {
   }
 
   // Helper: Setup common splat mesh properties
-  // Note: Spark 2.0 - lodRenderScale is now on SparkRenderer, not SplatMesh
+  // Note: Spark 2.0 - lodSplatScale is now on SparkRenderer, not SplatMesh
   _setupSplatMesh(splatMesh, { node, matrix, color, opacity, splatScale }) {
     // Apply user scale
     if (splatScale && splatScale !== 1.0) {
@@ -408,12 +430,8 @@ export class Stage extends System {
       updateSplatScale: (newScale) => {
         splatMesh.scale.setScalar(newScale)
       },
-      // Note: Spark 2.0 - lodRenderScale is now global on SparkRenderer
-      // Use world.stage.setLodRenderScale() instead
-      updateLodRenderScale: (newLodRenderScale) => {
-        // Deprecated: LOD is now controlled at renderer level
-        console.warn('[SplatHandle] lodRenderScale is now global - use world.stage.setLodRenderScale()')
-      },
+      // Spark 2.0: lodSplatScale is global - use world.stage.setLodSplatScale()
+      updateLodSplatScale: () => {},
       destroy: () => {
         // Clean up SOGS load interval if exists
         if (splatMesh._loadIntervalId) {
@@ -430,7 +448,7 @@ export class Stage extends System {
     }
   }
 
-  async insertGaussianSplat({ url, node, matrix, color = '#ffffff', opacity = 1.0, splatScale = 1.0, lodRenderScale = 1.0 }) {
+  async insertGaussianSplat({ url, node, matrix, color = '#ffffff', opacity = 1.0, splatScale = 1.0, lodSplatScale = 1.0, onProgress = null }) {
     // Only create SplatMesh on client
     if (this.world.network.isServer) {
       return {
@@ -447,19 +465,24 @@ export class Stage extends System {
       // Create SparkRenderer singleton (Spark 2.0: no camera attachment needed)
       if (!sparkRendererInstance && this.world.camera && this.world.graphics?.renderer) {
         const tier = getDevicePerformanceTier()
+        const lodSplatCount = getDefaultLodSplatCount()
+        const lodSplatScale = getDefaultLodSplatScale()
+
+        // Spark 2.0: maxStdDev limits Gaussian extent (lower = better perf, slightly lower quality)
+        const maxStdDev = (tier === 'quest' || tier === 'android') ? 1.8 :
+                          (tier === 'ios' || tier === 'visionpro') ? 2.0 :
+                          Math.sqrt(8) // Desktop: ~2.83
 
         // Spark 2.0: LOD settings are now on Renderer level
         sparkRendererInstance = new SparkRenderer({
           renderer: this.world.graphics.renderer,
           enableLod: true,
-          lodRenderScale: getDefaultLodRenderScale(),
-          maxStdDev: tier === 'quest' ? 1.8 : (tier === 'mobile' ? 1.5 : Math.sqrt(8))
+          lodSplatCount: lodSplatCount,
+          lodSplatScale: lodSplatScale,
+          maxStdDev: maxStdDev
         })
 
-        // Spark 2.0: Add to scene instead of camera (auto camera-relative rendering)
         this.scene.add(sparkRendererInstance)
-
-        console.log(`✅ SparkRenderer initialized (Spark 2.0, tier: ${tier}, enableLod: true, lodRenderScale: ${getDefaultLodRenderScale()})`)
       }
 
       // Detect file type from source URL using shared utility
@@ -468,14 +491,16 @@ export class Stage extends System {
       const fileType = ext ? getSparkFileType(ext) : null
 
       const isSOGS = fileType === 'pcsogs' || fileType === 'pcsogszip'
-      // Spark 2.0: lodRenderScale is now on SparkRenderer, not per-SplatMesh
+      // Spark 2.0: lodSplatScale is now on SparkRenderer, not per-SplatMesh
       const setupOptions = { node, matrix, color, opacity, splatScale }
 
       // SOGS/ZIP: Use URL-based loading (Spark.js handles decompression)
       if (isSOGS) {
         const splatMesh = new SplatMesh({
           url: url,
-          fileType: fileType
+          fileType: fileType,
+          lod: true,
+          onProgress: onProgress
         })
 
         const id = this._setupSplatMesh(splatMesh, setupOptions)
@@ -489,9 +514,6 @@ export class Stage extends System {
             if (splatMesh.numSplats > 0 || splatMesh.isInitialized || loadCheckCount >= 30) {
               clearInterval(loadInterval)
               loadInterval = null
-              if (loadCheckCount >= 30) {
-                console.warn('⚠️ SOGS loading timeout - file may be corrupted or too large')
-              }
             }
           }, 2000)
         }
@@ -505,7 +527,7 @@ export class Stage extends System {
         splatData = await this.world.loader.load('splat', srcUrl)
       }
 
-      const splatMesh = await splatData.createSplatMesh()
+      const splatMesh = await splatData.createSplatMesh({ onProgress })
       const id = this._setupSplatMesh(splatMesh, setupOptions)
 
       return this._createSplatHandle(splatMesh, { id, srcUrl, removeFromCache: true })
@@ -534,20 +556,29 @@ export class Stage extends System {
   }
 
   // Spark 2.0: Global LOD control methods
-  setLodRenderScale(scale) {
+  setLodSplatScale(scale) {
     if (sparkRendererInstance) {
-      sparkRendererInstance.lodRenderScale = Math.max(0.1, scale)
+      sparkRendererInstance.lodSplatScale = Math.max(0.1, scale)
     }
   }
 
-  getLodRenderScale() {
-    return sparkRendererInstance?.lodRenderScale || getDefaultLodRenderScale()
+  getLodSplatScale() {
+    return sparkRendererInstance?.lodSplatScale || getDefaultLodSplatScale()
   }
 
   setLodSplatCount(count) {
     if (sparkRendererInstance) {
       sparkRendererInstance.lodSplatCount = count
     }
+  }
+
+  getLodSplatCount() {
+    return sparkRendererInstance?.lodSplatCount || getDefaultLodSplatCount()
+  }
+
+  // Get current device tier for debugging
+  getDeviceTier() {
+    return getDevicePerformanceTier()
   }
 
   destroy() {
