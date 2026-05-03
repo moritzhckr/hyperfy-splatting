@@ -45,6 +45,10 @@ function MenuMainIndex({ world, pop, push }) {
     player.modify({ name })
     world.network.send('entityModified', { id: player.data.id, name })
   }
+  const handleLogout = () => {
+    // Navigate to logout route which clears localStorage and redirects to Auth Gateway
+    window.location.href = '/logout'
+  }
   return (
     <Menu title='Menu'>
       <MenuItemText label='Name' hint='Change your display name' value={name} onChange={changeName} />
@@ -55,6 +59,7 @@ function MenuMainIndex({ world, pop, push }) {
       {isBuilder && (
         <MenuItemBtn label='Apps' hint='View all apps in the world' onClick={() => world.ui.toggleApps()} />
       )}
+      <MenuItemBtn label='Logout' hint='Sign out and return to login page' onClick={handleLogout} />
     </Menu>
   )
 }

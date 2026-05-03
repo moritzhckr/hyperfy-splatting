@@ -1,0 +1,91 @@
+version: '3.8'
+
+services:
+  # Auth Gateway - handles all authentication
+  auth-gateway:
+    build:
+      context: ./packages/auth-gateway
+      dockerfile: Dockerfile
+    container_name: hyperfy-auth
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - HOST=0.0.0.0
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+      - DATABASE_URL=/data/auth.db
+      - HYPERFY_URL=http://hyperfy:3001
+      - REQUIRE_AUTH=true
+      # SAML Configuration
+      - SAML_ENABLED=${SAML_ENABLED:-false}
+      - SAML_ENTRY_POINT=${SAML_ENTRY_POINT:-}
+      - SAML_ISSUER=${SAML_ISSUER:-hyperfy-auth}
+      - SAML_CERT=${SAML_CERT:-}
+      - SAML_CALLBACK_URL=${SAML_CALLBACK_URL:-http://localhost:3000/auth/saml/callback}
+      # Email Configuration
+      - EMAIL_ENABLED=${EMAIL_ENABLED:-true}
+      - EMAIL_VERIFICATION_REQUIRED=${EMAIL_VERIFICATION_REQUIRED:-false}
+      # Cookies
+      - SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-false}
+      - SESSION_COOKIE_DOMAIN=${SESSION_COOKIE_DOMAIN:-}
+      - CORS_ORIGIN=${CORS_ORIGIN:-}
+    volumes:
+      - auth-data:/data
+    depends_on:
+      - hyperfy
+    networks:
+      - hyperfy-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Hyperfy World Engine
+  hyperfy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hyperfy-world
+    expose:
+      - "3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - HOST=0.0.0.0
+      - PUBLIC_WS_URL=${PUBLIC_WS_URL:-ws://localhost:3000/ws}
+      - PUBLIC_API_URL=${PUBLIC_API_URL:-http://localhost:3000}
+      # Trust auth gateway headers
+      - TRUST_PROXY_HEADERS=true
+      - ADMIN_CODE=${ADMIN_CODE:-}
+      # AI Integration (optional)
+      - AI_PROVIDER=${AI_PROVIDER:-}
+      - AI_API_KEY=${AI_API_KEY:-}
+      - AI_MODEL=${AI_MODEL:-}
+      # LiveKit (optional)
+      - LIVEKIT_URL=${LIVEKIT_URL:-}
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-}
+    volumes:
+      - world-data:/app/world
+    networks:
+      - hyperfy-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  auth-data:
+    name: hyperfy-auth-data
+  world-data:
+    name: hyperfy-world-data
+
+networks:
+  hyperfy-net:
+    name: hyperfy-network
+    driver: bridge

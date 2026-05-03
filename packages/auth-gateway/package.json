@@ -1,0 +1,38 @@
+{
+  "name": "@hyperfy/auth-gateway",
+  "version": "1.0.0",
+  "description": "Authentication Gateway for Hyperfy with SAML 2.0 and Email/Password support",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "db:seed": "tsx src/db/seed.ts"
+  },
+  "dependencies": {
+    "fastify": "^5.0.0",
+    "@fastify/cors": "^10.0.0",
+    "@fastify/cookie": "^11.0.0",
+    "@fastify/formbody": "^8.0.0",
+    "@node-saml/node-saml": "^5.0.0",
+    "bcrypt": "^5.1.1",
+    "jsonwebtoken": "^9.0.2",
+    "better-sqlite3": "^11.3.0",
+    "uuid": "^10.0.0",
+    "nodemailer": "^6.9.15",
+    "zod": "^3.23.8",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/bcrypt": "^5.0.2",
+    "@types/jsonwebtoken": "^9.0.6",
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/uuid": "^10.0.0",
+    "@types/nodemailer": "^6.4.15",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  }
+}

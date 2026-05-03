@@ -19,6 +19,9 @@
   ],
   "scripts": {
     "dev": "node scripts/build.mjs --dev",
+    "dev:auth": "concurrently -n hyperfy,auth -c blue,green \"npm run dev\" \"npm run auth:dev\"",
+    "auth:dev": "cd packages/auth-gateway && npm run dev",
+    "auth:install": "cd packages/auth-gateway && npm install",
     "build": "node scripts/build.mjs",
     "start": "node build/index.js",
     "world:backup": "node scripts/backup-world.mjs",
@@ -78,6 +81,7 @@
   "devDependencies": {
     "@babel/eslint-parser": "^7.23.10",
     "@babel/preset-react": "^7.23.10",
+    "concurrently": "^9.2.1",
     "esbuild": "^0.24.0",
     "eslint": "^8.57.0",
     "eslint-config-prettier": "^9.1.0",

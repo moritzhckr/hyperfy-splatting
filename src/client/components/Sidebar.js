@@ -466,6 +466,9 @@ function Prefs({ world, hidden }) {
   const [canFullscreen, isFullscreen, toggleFullscreen] = useFullscreen()
   const [actions, setActions] = useState(world.prefs.actions)
   const [stats, setStats] = useState(world.prefs.stats)
+  // Saved avatars from Auth Gateway
+  const [savedAvatars, setSavedAvatars] = useState([])
+  const [loadingAvatars, setLoadingAvatars] = useState(false)
   const changeName = name => {
     if (!name) return setName(player.data.name)
     player.setName(name)
@@ -507,6 +510,122 @@ function Prefs({ world, hidden }) {
       world.prefs.off('change', onPrefsChange)
     }
   }, [])
+  // Fetch saved avatars from Auth Gateway
+  useEffect(() => {
+    const authToken = storage.get('authToken')
+    if (!authToken) return
+    const fetchAvatars = async () => {
+      setLoadingAvatars(true)
+      try {
+        const response = await fetch(`/api/internal/inventory?type=avatar&token=${encodeURIComponent(authToken)}`)
+        if (response.ok) {
+          const items = await response.json()
+          setSavedAvatars(items.map(item => ({
+            id: item.itemId,
+            url: item.data?.url,
+            name: item.data?.name || 'Avatar',
+            thumbnail: item.data?.thumbnail
+          })).filter(a => a.url))
+        }
+      } catch (err) {
+        console.log('Failed to fetch saved avatars:', err)
+      }
+      setLoadingAvatars(false)
+    }
+    fetchAvatars()
+  }, [])
+  // Save current avatar to Auth Gateway
+  const saveCurrentAvatar = async () => {
+    const authToken = storage.get('authToken')
+    if (!authToken) return
+    // Use getAvatarUrl() to get the currently displayed avatar (handles sessionAvatar priority)
+    const currentAvatar = player.getAvatarUrl()
+    if (!currentAvatar || currentAvatar === 'asset://avatar.vrm') return
+    // Prompt user for avatar name
+    const defaultName = `Avatar ${savedAvatars.length + 1}`
+    const avatarName = window.prompt('Name for this avatar:', defaultName)
+    if (!avatarName) return // User cancelled
+    try {
+      await fetch('/api/internal/inventory', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({
+          itemType: 'avatar',
+          itemId: btoa(currentAvatar).replace(/[+/=]/g, c => ({ '+': '-', '/': '_', '=': '' }[c])),
+          itemData: { url: currentAvatar, name: avatarName }
+        })
+      })
+      // Refresh avatar list
+      await refreshAvatarList()
+    } catch (err) {
+      console.log('Failed to save avatar:', err)
+    }
+  }
+  // Refresh avatar list from Auth Gateway
+  const refreshAvatarList = async () => {
+    const authToken = storage.get('authToken')
+    if (!authToken) return
+    try {
+      const response = await fetch(`/api/internal/inventory?type=avatar&token=${encodeURIComponent(authToken)}`)
+      if (response.ok) {
+        const items = await response.json()
+        setSavedAvatars(items.map(item => ({
+          id: item.itemId,
+          url: item.data?.url,
+          name: item.data?.name || 'Avatar',
+          thumbnail: item.data?.thumbnail
+        })).filter(a => a.url))
+      }
+    } catch (err) {
+      console.log('Failed to refresh avatars:', err)
+    }
+  }
+  // Delete saved avatar
+  const deleteAvatar = async (avatarId) => {
+    const authToken = storage.get('authToken')
+    if (!authToken) return
+
+    // Find the avatar being deleted to check if it's currently equipped
+    const avatarToDelete = savedAvatars.find(a => a.id === avatarId)
+    const currentAvatarUrl = player.getAvatarUrl()
+
+    try {
+      await fetch('/api/internal/inventory/delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({
+          itemType: 'avatar',
+          itemId: avatarId
+        })
+      })
+
+      // If we deleted the currently equipped avatar, reset to default
+      if (avatarToDelete && avatarToDelete.url === currentAvatarUrl) {
+        const defaultAvatar = world.settings.avatar?.url || 'asset://avatar.vrm'
+        player.modify({ avatar: defaultAvatar, sessionAvatar: null })
+        world.network.send('entityModified', { id: player.data.id, avatar: defaultAvatar, sessionAvatar: null })
+      }
+
+      await refreshAvatarList()
+    } catch (err) {
+      console.log('Failed to delete avatar:', err)
+    }
+  }
+  // Equip saved avatar
+  const equipAvatar = (avatarUrl) => {
+    if (!avatarUrl) return
+    // Update local state (triggers applyAvatar automatically)
+    // Must also clear sessionAvatar since it takes priority over avatar
+    player.modify({ avatar: avatarUrl, sessionAvatar: null })
+    // Sync to server - include sessionAvatar: null so remote clients also see the change
+    world.network.send('entityModified', { id: player.data.id, avatar: avatarUrl, sessionAvatar: null })
+  }
   return (
     <Pane hidden={hidden}>
       <div
@@ -633,6 +752,90 @@ function Prefs({ world, hidden }) {
           value={voice}
           onChange={voice => world.prefs.setVoice(voice)}
         />
+        {storage.get('authToken') && (
+          <>
+            <Group label='Account' />
+            <FieldText
+              label='Role'
+              hint='Your current permission level'
+              value={isAdmin ? 'Admin' : isBuilder ? 'Builder' : 'Visitor'}
+              disabled
+            />
+            <Group label='My Avatars' />
+            {(player.data.avatar || player.data.sessionAvatar) && player.getAvatarUrl() !== 'asset://avatar.vrm' && (
+              <FieldBtn
+                label='Save Current Avatar'
+                hint='Save your current avatar to your collection'
+                onClick={saveCurrentAvatar}
+              />
+            )}
+            {loadingAvatars && (
+              <div css={css`padding: 0.5rem 1rem; color: rgba(255,255,255,0.5); font-size: 0.875rem;`}>
+                Loading avatars...
+              </div>
+            )}
+            {!loadingAvatars && savedAvatars.length === 0 && (
+              <div css={css`padding: 0.5rem 1rem; color: rgba(255,255,255,0.5); font-size: 0.875rem;`}>
+                No saved avatars yet
+              </div>
+            )}
+            {savedAvatars.map((avatar, idx) => (
+              <div
+                key={avatar.id || idx}
+                css={css`
+                  display: flex;
+                  align-items: center;
+                  padding: 0 0.5rem 0 0;
+                  .avatar-btn { flex: 1; }
+                  .delete-btn {
+                    width: 2rem;
+                    height: 2rem;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    background: transparent;
+                    border: none;
+                    color: rgba(255,255,255,0.4);
+                    cursor: pointer;
+                    font-size: 1rem;
+                    border-radius: 4px;
+                    &:hover {
+                      background: rgba(255,0,0,0.2);
+                      color: #ff6b6b;
+                    }
+                  }
+                `}
+              >
+                <div className='avatar-btn'>
+                  <FieldBtn
+                    label={avatar.name}
+                    hint={`Click to equip`}
+                    onClick={() => equipAvatar(avatar.url)}
+                  />
+                </div>
+                <button
+                  className='delete-btn'
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    deleteAvatar(avatar.id)
+                  }}
+                  title='Remove avatar'
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+            <Group label='' />
+            <FieldBtn
+              label='Logout'
+              hint='Sign out and return to login page'
+              onClick={() => {
+                // Redirect to logout page which clears storage and redirects to Auth Gateway
+                window.location.href = '/logout'
+              }}
+            />
+          </>
+        )}
       </div>
     </Pane>
   )

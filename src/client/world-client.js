@@ -6,6 +6,7 @@ import { css } from '@firebolt-dev/css'
 
 import { createClientWorld } from '../core/createClientWorld'
 import { CoreUI } from './components/CoreUI'
+import { storage } from '../core/storage'
 
 export { System } from '../core/systems/System'
 
@@ -42,7 +43,36 @@ export function Client({ wsUrl, onSetup }) {
         wsUrl = wsUrl()
         if (wsUrl instanceof Promise) wsUrl = await wsUrl
       }
-      const config = { viewport, cssLayer, ui, wsUrl, baseEnvironment }
+
+      // Read auth parameters from URL (set by Auth Gateway redirect)
+      const urlParams = new URLSearchParams(window.location.search)
+      const authToken = urlParams.get('authToken')
+      const urlName = urlParams.get('name')
+      const urlAvatar = urlParams.get('avatar')
+
+      // Store auth token if provided in URL
+      if (authToken) {
+        storage.set('authToken', authToken)
+      }
+      // Store name if provided (for display and reconnection)
+      if (urlName) {
+        storage.set('name', urlName)
+      }
+      // Store avatar if provided
+      if (urlAvatar) {
+        storage.set('avatar', urlAvatar)
+      }
+
+      // Clean URL to remove auth params (security)
+      if (authToken || urlName || urlAvatar) {
+        window.history.replaceState({}, '', window.location.pathname)
+      }
+
+      // Use URL values or fall back to stored values
+      const name = urlName || storage.get('name')
+      const avatar = urlAvatar || storage.get('avatar')
+
+      const config = { viewport, cssLayer, ui, wsUrl, baseEnvironment, name, avatar }
       onSetup?.(world, config)
       world.init(config)
     }

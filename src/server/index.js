@@ -261,6 +261,123 @@ fastify.get('/status', async (request, reply) => {
   }
 })
 
+// Proxy routes for Auth Gateway API (client-side access)
+const authGatewayUrlBase = process.env.AUTH_GATEWAY_URL || 'http://localhost:3000'
+
+// Proxy inventory GET requests
+fastify.get('/api/internal/inventory', async (request, reply) => {
+  const { token, type } = request.query
+  if (!token) {
+    return reply.status(401).send({ message: 'Missing token' })
+  }
+  try {
+    const url = new URL('/api/internal/inventory', authGatewayUrlBase)
+    url.searchParams.set('token', token)
+    if (type) url.searchParams.set('type', type)
+    const response = await fetch(url.toString())
+    const data = await response.json()
+    return reply.status(response.status).send(data)
+  } catch (err) {
+    console.error('Proxy error:', err)
+    return reply.status(502).send({ message: 'Failed to reach Auth Gateway' })
+  }
+})
+
+// Proxy inventory POST requests
+fastify.post('/api/internal/inventory', async (request, reply) => {
+  const authHeader = request.headers.authorization
+  if (!authHeader) {
+    return reply.status(401).send({ message: 'Missing authorization' })
+  }
+  try {
+    const response = await fetch(`${authGatewayUrlBase}/api/internal/inventory`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': authHeader
+      },
+      body: JSON.stringify(request.body)
+    })
+    const data = await response.json()
+    return reply.status(response.status).send(data)
+  } catch (err) {
+    console.error('Proxy error:', err)
+    return reply.status(502).send({ message: 'Failed to reach Auth Gateway' })
+  }
+})
+
+// Proxy inventory DELETE requests
+fastify.post('/api/internal/inventory/delete', async (request, reply) => {
+  const authHeader = request.headers.authorization
+  if (!authHeader) {
+    return reply.status(401).send({ message: 'Missing authorization' })
+  }
+  try {
+    const response = await fetch(`${authGatewayUrlBase}/api/internal/inventory/delete`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': authHeader
+      },
+      body: JSON.stringify(request.body)
+    })
+    const data = await response.json()
+    return reply.status(response.status).send(data)
+  } catch (err) {
+    console.error('Proxy error:', err)
+    return reply.status(502).send({ message: 'Failed to reach Auth Gateway' })
+  }
+})
+
+// Logout route - clears Hyperfy's localStorage and redirects to Auth Gateway
+fastify.get('/logout', async (request, reply) => {
+  const logoutHtml = `
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Logging out...</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      margin: 0;
+    }
+    .container {
+      text-align: center;
+      background: rgba(255, 255, 255, 0.05);
+      padding: 40px;
+      border-radius: 16px;
+      backdrop-filter: blur(10px);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Logging out...</h2>
+    <p>Please wait...</p>
+  </div>
+  <script>
+    // Clear Hyperfy's localStorage
+    localStorage.removeItem('authToken')
+    localStorage.removeItem('avatar')
+    localStorage.removeItem('name')
+
+    // Redirect to Auth Gateway logout (to clear session cookie)
+    setTimeout(() => {
+      window.location.href = '${authGatewayUrlBase}/auth/logout'
+    }, 300)
+  </script>
+</body>
+</html>
+  `
+  reply.type('text/html').send(logoutHtml)
+})
+
 fastify.setErrorHandler((err, req, reply) => {
   console.error(err)
   reply.status(500).send()
@@ -276,7 +393,14 @@ try {
 
 async function worldNetwork(fastify) {
   fastify.get('/ws', { websocket: true }, (ws, req) => {
-    world.network.onConnection(ws, req.query)
+    // Pass headers for Auth Gateway integration
+    const headers = {
+      'x-auth-user-id': req.headers['x-auth-user-id'],
+      'x-auth-user-email': req.headers['x-auth-user-email'],
+      'x-auth-user-name': req.headers['x-auth-user-name'],
+      'x-auth-user-rank': req.headers['x-auth-user-rank'],
+    }
+    world.network.onConnection(ws, req.query, headers)
   })
 }
 

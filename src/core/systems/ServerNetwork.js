@@ -11,8 +11,48 @@ import { Ranks } from '../extras/ranks'
 const SAVE_INTERVAL = parseInt(process.env.SAVE_INTERVAL || '60') // seconds
 const PING_RATE = 10 // seconds
 const defaultSpawn = '{ "position": [0, 0, 0], "quaternion": [0, 0, 0, 1] }'
+const AUTH_GATEWAY_URL = process.env.AUTH_GATEWAY_URL || 'http://localhost:3000'
 
 const HEALTH_MAX = 100
+
+/**
+ * Fetch user profile from Auth Gateway
+ * @param {string} authToken - JWT token
+ * @returns {Promise<Object|null>} User profile or null if fetch fails
+ */
+async function fetchUserProfile(authToken) {
+  try {
+    const response = await fetch(`${AUTH_GATEWAY_URL}/api/internal/profile?token=${encodeURIComponent(authToken)}`)
+    if (!response.ok) {
+      console.log('[Auth] Failed to fetch user profile:', response.status)
+      return null
+    }
+    return await response.json()
+  } catch (err) {
+    console.log('[Auth] Error fetching user profile:', err.message)
+    return null
+  }
+}
+
+/**
+ * Sync user changes back to Auth Gateway
+ * @param {string} authToken - JWT token
+ * @param {Object} changes - Changes to sync
+ */
+async function syncUserToAuthGateway(authToken, changes) {
+  try {
+    await fetch(`${AUTH_GATEWAY_URL}/api/internal/sync`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`
+      },
+      body: JSON.stringify(changes)
+    })
+  } catch (err) {
+    console.log('[Auth] Error syncing user:', err.message)
+  }
+}
 
 /**
  * Server Network System
@@ -206,7 +246,7 @@ export class ServerNetwork extends System {
       })
   }
 
-  async onConnection(ws, params) {
+  async onConnection(ws, params, headers = {}) {
     try {
       // check player limit
       const playerLimit = this.world.settings.playerLimit
@@ -224,14 +264,104 @@ export class ServerNetwork extends System {
 
       // get or create user
       let user
-      if (authToken) {
+
+      // Check for Auth Gateway headers (trusted proxy)
+      const trustProxyHeaders = process.env.TRUST_PROXY_HEADERS === 'true'
+      const proxyUserId = headers['x-auth-user-id']
+      const proxyUserEmail = headers['x-auth-user-email']
+      const proxyUserName = headers['x-auth-user-name']
+      const proxyUserRank = headers['x-auth-user-rank']
+
+      if (trustProxyHeaders && proxyUserId) {
+        // User authenticated via Auth Gateway
+        user = await this.db('users').where('id', proxyUserId).first()
+
+        if (!user) {
+          // Create user from Auth Gateway info
+          user = {
+            id: proxyUserId,
+            name: proxyUserName ? decodeURIComponent(proxyUserName) : 'User',
+            avatar: null,
+            rank: proxyUserRank ? parseInt(proxyUserRank) : 0,
+            createdAt: moment().toISOString(),
+          }
+          await this.db('users').insert(user)
+        } else {
+          // Update user info from Auth Gateway if changed
+          const updates = {}
+          if (proxyUserName) {
+            const decodedName = decodeURIComponent(proxyUserName)
+            if (user.name !== decodedName) updates.name = decodedName
+          }
+          if (proxyUserRank && user.rank !== parseInt(proxyUserRank)) {
+            updates.rank = parseInt(proxyUserRank)
+          }
+          if (Object.keys(updates).length > 0) {
+            await this.db('users').where('id', proxyUserId).update(updates)
+            user = { ...user, ...updates }
+          }
+        }
+
+        // Create a JWT for this session (for client-side use)
+        authToken = await createJWT({ userId: user.id })
+      } else if (authToken) {
+        // Standard JWT authentication - try to fetch profile from Auth Gateway
+        let authProfile = null
         try {
-          const { userId } = await readJWT(authToken)
-          user = await this.db('users').where('id', userId).first()
+          // First try to get full profile from Auth Gateway
+          authProfile = await fetchUserProfile(authToken)
         } catch (err) {
-          console.error('failed to read authToken:', authToken)
+          console.log('[Auth] Could not fetch profile from Auth Gateway')
+        }
+
+        if (authProfile) {
+          // User authenticated via Auth Gateway - use their profile data
+          user = await this.db('users').where('id', authProfile.id).first()
+
+          if (!user) {
+            // Create user from Auth Gateway profile
+            // Note: Hyperfy DB uses 'rank' (integer), not 'roles' (string)
+            user = {
+              id: authProfile.id,
+              name: authProfile.name || 'User',
+              avatar: authProfile.avatar_url || null,
+              rank: authProfile.rank || 0,
+              createdAt: moment().toISOString(),
+            }
+            await this.db('users').insert(user)
+          } else {
+            // Sync user data from Auth Gateway
+            const updates = {}
+            if (authProfile.name && user.name !== authProfile.name) {
+              updates.name = authProfile.name
+            }
+            if (authProfile.avatar_url && user.avatar !== authProfile.avatar_url) {
+              updates.avatar = authProfile.avatar_url
+            }
+            if (authProfile.rank !== undefined && user.rank !== authProfile.rank) {
+              updates.rank = authProfile.rank
+            }
+            if (Object.keys(updates).length > 0) {
+              await this.db('users').where('id', authProfile.id).update(updates)
+              user = { ...user, ...updates }
+            }
+          }
+
+          // Override name/avatar from Auth profile if not in URL params
+          if (!name && authProfile.name) name = authProfile.name
+          if (!avatar && authProfile.avatar_url) avatar = authProfile.avatar_url
+          if (!avatar && authProfile.equippedAvatar?.url) avatar = authProfile.equippedAvatar.url
+        } else {
+          // Fallback: Try to read JWT directly (for tokens not from Auth Gateway)
+          try {
+            const { userId } = await readJWT(authToken)
+            user = await this.db('users').where('id', userId).first()
+          } catch (err) {
+            console.error('failed to read authToken:', authToken)
+          }
         }
       }
+
       if (!user) {
         user = {
           id: uuid(),
@@ -257,6 +387,7 @@ export class ServerNetwork extends System {
 
       // create socket
       const socket = new Socket({ id: user.id, ws, network: this })
+      socket.authToken = authToken // Store for syncing back to Auth Gateway
 
       // spawn player
       socket.player = this.world.entities.add(
@@ -339,6 +470,10 @@ export class ServerNetwork extends System {
           createdAt: moment().toISOString(),
         })
         await this.db('users').where('id', userId).update({ rank })
+        // Sync rank to Auth Gateway
+        if (socket.authToken) {
+          syncUserToAuthGateway(socket.authToken, { rank })
+        }
       }
     }
     if (cmd === 'name') {
@@ -357,6 +492,10 @@ export class ServerNetwork extends System {
           createdAt: moment().toISOString(),
         })
         await this.db('users').where('id', userId).update({ name })
+        // Sync name to Auth Gateway
+        if (socket.authToken) {
+          syncUserToAuthGateway(socket.authToken, { name })
+        }
       }
     }
     if (cmd === 'spawn') {
@@ -404,6 +543,11 @@ export class ServerNetwork extends System {
     player.modify({ rank })
     this.send('entityModified', { id: playerId, rank })
     await this.db('users').where('id', playerId).update({ rank })
+    // Sync rank to Auth Gateway for the target player
+    const targetSocket = this.sockets.get(playerId)
+    if (targetSocket?.authToken) {
+      syncUserToAuthGateway(targetSocket.authToken, { rank })
+    }
   }
 
   onKick = (socket, playerId) => {
@@ -486,6 +630,14 @@ export class ServerNetwork extends System {
       }
       if (changed) {
         await this.db('users').where('id', entity.data.userId).update(changes)
+
+        // Sync changes back to Auth Gateway (if user has authToken)
+        if (socket.authToken) {
+          const syncData = {}
+          if (changes.name) syncData.name = changes.name
+          if (changes.avatar) syncData.avatar_url = changes.avatar
+          syncUserToAuthGateway(socket.authToken, syncData)
+        }
       }
     }
   }
