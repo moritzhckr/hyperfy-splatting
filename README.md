@@ -100,6 +100,12 @@ npm run build
 npm start
 ```
 
+## 🚢 Deployment
+
+Build and run a production server with `npm run build && npm start`. Set `JWT_SECRET`, `ADMIN_CODE`, and `PUBLIC_WS_URL` in your `.env` before starting. A reverse proxy (nginx/Caddy) forwarding WebSocket upgrades to port 3000 is recommended for public deployments.
+
+See **[docs/deployment.md](docs/deployment.md)** for full setup instructions, Docker usage, and how to connect the GitHub Pages static preview to your server.
+
 ## 🖊️ Contributing
 
 Contributions are welcome! Please check out our [contributing guidelines](CONTRIBUTING.md) and [code of conduct](CODE_OF_CONDUCT.md) before getting started.

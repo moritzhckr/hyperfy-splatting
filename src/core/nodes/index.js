@@ -17,6 +17,7 @@ export { Particles as particles } from './Particles.js'
 
 export { Sky as sky } from './Sky.js'
 export { GaussianSplat as gaussiansplat } from './GaussianSplat.js'
+export { Light as light } from './Light.js'
 
 export { UI as ui } from './UI.js'
 export { UIView as uiview } from './UIView.js'
