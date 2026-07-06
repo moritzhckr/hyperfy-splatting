@@ -66,7 +66,7 @@
     "nanoid": "^5.0.6",
     "openai": "^5.12.2",
     "pg": "^8.16.3",
-    "postprocessing": "^7.0.0-beta.16",
+    "postprocessing": "^6.39.2",
     "react": "^19.1.0",
     "react-colorful": "^5.6.1",
     "react-dom": "^19.1.0",

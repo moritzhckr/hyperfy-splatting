@@ -1445,8 +1445,7 @@ app.on('update', () => {
     } catch (err) {
       console.error('❌ Failed to upload splat files:', err)
       console.error('  Error details:', err.message, err.stack)
-      // clean up failed app
-      app.destroy()
+      // no app entity exists yet (it is only added after a successful upload)
     }
   }
 
