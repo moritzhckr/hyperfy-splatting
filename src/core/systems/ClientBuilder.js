@@ -404,9 +404,6 @@ export class ClientBuilder extends System {
       this.select(null)
     }
     // duplicate
-    // TODO: Currently duplicates the entire app (including splats inside).
-    // For splat apps, this duplicates the mesh within the same app, not creating a new app instance.
-    // Consider: Shift+R = duplicate as new app, R = duplicate mesh only (current behavior)?
     let duplicate
     if (this.xrMenu?.copy) {
       this.xrMenu.copy = false
@@ -424,8 +421,11 @@ export class ClientBuilder extends System {
       const entity = this.selected || this._getClosestEntityAtBeam()
       if (entity?.isApp && !entity.blueprint.scene) {
         let blueprintId = entity.data.blueprint
-        // if unique, we also duplicate the blueprint
-        if (entity.blueprint.unique) {
+        // if unique, we also duplicate the blueprint.
+        // splat apps get their own blueprint too: the apps list groups instances
+        // by blueprint, so this gives every duplicate its own entry that can be
+        // inspected/deleted independently (the splat asset itself stays shared)
+        if (entity.blueprint.unique || isSplatApp(entity.blueprint)) {
           const blueprint = {
             id: uuid(),
             version: 0,
@@ -1740,4 +1740,10 @@ function getAsString(item) {
   return new Promise(resolve => {
     item.getAsString(resolve)
   })
+}
+
+function isSplatApp(blueprint) {
+  // drag&drop splat apps carry the file in props, direct splat blueprints in model
+  if (blueprint.props?.splatFile) return true
+  return /\.(ply|splat|ksplat|spz|sog|sogs|zip)$/i.test(blueprint.model || '')
 }
