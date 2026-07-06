@@ -137,22 +137,6 @@ fastify.register(statics, {
   },
 })
 if (world.assetsDir) {
-  // Add a hook to transform SPZ files to base64 before serving
-  fastify.addHook('onSend', async (request, reply, payload) => {
-    if (request.url.startsWith('/assets/') && request.url.endsWith('.spz') && request.method === 'GET') {
-      // Only transform if this is actually binary SPZ file content (not JSON responses)
-      if (Buffer.isBuffer(payload) && payload.length > 100) { // SPZ files should be reasonably sized
-        const base64Data = payload.toString('base64')
-
-        reply.header('Content-Type', 'text/plain')
-        reply.header('X-SPZ-Format', 'base64-gzip')
-
-        return base64Data
-      }
-    }
-    return payload
-  })
-
   fastify.register(statics, {
     root: world.assetsDir,
     prefix: '/assets/',
@@ -167,36 +151,20 @@ if (world.assetsDir) {
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable') // 1 year
       res.setHeader('Expires', new Date(Date.now() + 31536000000).toUTCString()) // older browsers
       
-      // Handle Gaussian Splat files with proper MIME types and compression headers
+      // Serve Gaussian Splat files as raw binary. SPZ is gzip data by spec but must
+      // NOT get a Content-Encoding header — Spark decompresses it itself.
       const ext = path.split('.').pop()?.toLowerCase()
-      
-      if (ext === 'ply') {
+
+      if (ext === 'ply' || ext === 'splat' || ext === 'ksplat' || ext === 'spz') {
         res.setHeader('Content-Type', 'application/octet-stream')
         res.setHeader('Accept-Ranges', 'bytes')
-      } else if (ext === 'splat') {
-        res.setHeader('Content-Type', 'application/octet-stream')
-        res.setHeader('Accept-Ranges', 'bytes')
-      } else if (ext === 'ksplat') {
-        res.setHeader('Content-Type', 'application/octet-stream')
-        res.setHeader('Accept-Ranges', 'bytes')
-      } else if (ext === 'spz') {
-        // SPZ files are pre-compressed and need special handling
-        // Serve as base64 to prevent browser auto-decompression
-        res.setHeader('Content-Type', 'text/plain')
-        res.setHeader('Accept-Ranges', 'bytes')
-        // Add custom header to indicate this is base64-encoded SPZ data
-        res.setHeader('X-SPZ-Format', 'base64-gzip')
-        // Add CORS headers for cross-origin requests
-        res.setHeader('Access-Control-Allow-Origin', '*')
-        res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS')
-        res.setHeader('Access-Control-Allow-Headers', 'Range')
       }
     },
   })
 }
 fastify.register(multipart, {
   limits: {
-    fileSize: 200 * 1024 * 1024, // 200MB
+    fileSize: 500 * 1024 * 1024, // 500MB, matches client-side splat size validation
   },
   // Ensure binary files are handled correctly
   attachFieldsToBody: false,
@@ -258,9 +226,8 @@ fastify.post('/api/upload', async (req, reply) => {
     const isValidGzip = magicBytes[0] === 0x1f && magicBytes[1] === 0x8b && magicBytes[2] === 0x08
     
     if (!isValidGzip) {
-      console.warn(`⚠️ SPZ file ${mp.filename} doesn't appear to be valid gzip format`)
       // Continue anyway, maybe it's a different SPZ variant
-    } else {
+      console.warn(`⚠️ SPZ file ${mp.filename} doesn't appear to be valid gzip format`)
     }
   }
   

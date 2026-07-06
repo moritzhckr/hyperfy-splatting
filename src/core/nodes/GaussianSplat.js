@@ -37,6 +37,7 @@ export class GaussianSplat extends Node {
     this.needsRebuild = false
     this.handle = null
     this.handleCreationId = 0 // Unique ID for each handle creation attempt (prevents ghost splats)
+    this.loadRequestId = 0 // Unique ID for each loadSplat call (newer calls supersede older ones)
 
     // Loading UI elements
     this.loadingUI = null
@@ -65,8 +66,9 @@ export class GaussianSplat extends Node {
   }
 
   unmount() {
-    // Increment creation ID to invalidate any pending handle creation
+    // Invalidate any pending handle creation and in-flight loads
     this.handleCreationId++
+    this.loadRequestId++
 
     // Remove loading UI
     this._removeLoadingUI()
@@ -168,7 +170,6 @@ export class GaussianSplat extends Node {
   }
 
   async loadSplat() {
-    if (this.loadingState === 'loading') return
     if (!this._src) return
 
     // Server doesn't need to load splats for rendering - just mark as loaded
@@ -177,35 +178,39 @@ export class GaussianSplat extends Node {
       return
     }
 
+    // Each call supersedes any in-flight load (e.g. src changed while loading)
+    const loadId = ++this.loadRequestId
+    const src = this._src
+
     this.loadingState = 'loading'
     this._createLoadingUI()
 
     try {
-      // Use Hyperfy's standard loader system
-      const format = detectSplatFormat(this._src)
+      const format = detectSplatFormat(src)
 
-      // For PLY/KSPLAT/SPLAT/SPZ: Use standard loader
+      // For PLY/KSPLAT/SPLAT/SPZ: warm the loader cache so Stage picks it up
       // SOGS and ZIP files are loaded directly via URL in Stage.js
       if (format === 'ply' || format === 'ksplat' || format === 'splat' || format === 'spz') {
-        // Load through Hyperfy's asset system
-        let splatData = this.ctx.world.loader.get('splat', this._src)
-        if (!splatData) {
-          splatData = await this.ctx.world.loader.load('splat', this._src)
+        if (!this.ctx.world.loader.get('splat', src)) {
+          await this.ctx.world.loader.load('splat', src)
         }
-        // Store the loaded data for createSplatHandle
-        this.splatData = splatData
       }
+
+      if (loadId !== this.loadRequestId) return // superseded
 
       this.loadingState = 'loaded'
 
       // Only create handle on client after loading is marked complete
-      if (this.mounted && !this.ctx.world.network.isServer) {
+      if (this.mounted) {
         await this.createSplatHandle()
       }
+
+      if (loadId !== this.loadRequestId) return // superseded
 
       // Remove loading UI after handle is created
       this._removeLoadingUI()
     } catch (error) {
+      if (loadId !== this.loadRequestId) return // superseded
       console.error('❌ [GaussianSplat] Loading failed:', error)
       this.loadingState = 'error'
       this._removeLoadingUI()
@@ -227,36 +232,18 @@ export class GaussianSplat extends Node {
     // Track this creation attempt with unique ID
     const creationId = ++this.handleCreationId
 
-    // Determine URL to use based on loaded data or fallback
-    let actualURL = this.ctx.world.resolveURL(this._src)
+    // Stage resolves the asset itself: SOGS/ZIP formats load via this URL,
+    // all other formats load through the loader cache keyed by node._src.
+    const url = this.ctx.world.resolveURL(this._src)
 
-    // For formats handled by standard loader, use the loaded data if available
-    const format = detectSplatFormat(this._src)
-
-    // SOGS/ZIP files need the actual URL (not blob) so Spark.js can detect fileType
-    const isSOGSFormat = format === 'sog' || format === 'sogs' || format === 'zip'
-
-    if ((format === 'ply' || format === 'ksplat' || format === 'splat' || format === 'spz') && this.splatData) {
-      // Use blob URL from standard loader for fileBytes formats
-      actualURL = this.splatData.localUrl || actualURL
-    } else if (!isSOGSFormat && this.ctx.world.loader.hasFile(this._src)) {
-      // Fallback to cached file blob URL (but NOT for SOGS/ZIP)
-      const cachedFile = this.ctx.world.loader.getFile(this._src)
-      if (cachedFile) {
-        actualURL = URL.createObjectURL(cachedFile)
-      }
-    }
-
-    // Create the splat handle (async operation)
     // Note: sortMode is not passed - Spark.js handles sorting internally via SparkRenderer
     const newHandle = await this.ctx.world.stage.insertGaussianSplat({
-      url: actualURL,
+      url,
       node: this,
       matrix: this.matrixWorld,
       color: this._color,
       opacity: this._opacity,
       splatScale: this._splatScale,
-      lodSplatScale: this._lodSplatScale,
       onProgress: (event) => {
         if (event.lengthComputable) {
           this._updateLoadingUI(event.loaded / event.total)
@@ -319,6 +306,8 @@ export class GaussianSplat extends Node {
     this.setDirty()
   }
 
+  // Note: castShadow/receiveShadow are kept for API compatibility but have no
+  // effect - Spark splat meshes don't participate in the three.js shadow pass
   get castShadow() {
     return this._castShadow
   }
@@ -327,12 +316,7 @@ export class GaussianSplat extends Node {
     if (!isBoolean(value)) {
       throw new Error('[gaussiansplat] castShadow must be a boolean')
     }
-    if (this._castShadow === value) return
     this._castShadow = value
-    if (this.handle) {
-      this.needsRebuild = true
-      this.setDirty()
-    }
   }
 
   get receiveShadow() {
@@ -343,12 +327,7 @@ export class GaussianSplat extends Node {
     if (!isBoolean(value)) {
       throw new Error('[gaussiansplat] receiveShadow must be a boolean')
     }
-    if (this._receiveShadow === value) return
     this._receiveShadow = value
-    if (this.handle) {
-      this.needsRebuild = true
-      this.setDirty()
-    }
   }
 
 
@@ -416,9 +395,10 @@ export class GaussianSplat extends Node {
     }
   }
 
-  // Spark 2.0: lodSplatScale is now global on SparkRenderer
+  // Spark 2.0: lodSplatScale is a GLOBAL setting on the SparkRenderer, not
+  // per-splat. Setting it on any node changes the LOD budget for all splats
+  // in the world (last writer wins). The getter reflects the global value.
   get lodSplatScale() {
-    // Return the global LOD scale from stage if available
     return this.ctx?.world?.stage?.getLodSplatScale?.() || this._lodSplatScale
   }
 
@@ -428,10 +408,7 @@ export class GaussianSplat extends Node {
     }
     value = Math.max(0.1, value)
     this._lodSplatScale = value
-    // Spark 2.0: LOD is global - set on stage
-    if (this.ctx?.world?.stage?.setLodSplatScale) {
-      this.ctx.world.stage.setLodSplatScale(value)
-    }
+    this.ctx?.world?.stage?.setLodSplatScale?.(value)
   }
 
 

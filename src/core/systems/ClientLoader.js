@@ -116,80 +116,16 @@ export class ClientLoader extends System {
     this.promises.delete(key)
   }
 
-  loadFile = async (url, options = {}) => {
-    const { preserveCompression = false } = options
-
+  loadFile = async url => {
     url = this.world.resolveURL(url)
-    const cacheKey = preserveCompression ? `${url}:raw` : url
-
-    if (this.files.has(cacheKey)) {
-      return this.files.get(cacheKey)
+    if (this.files.has(url)) {
+      return this.files.get(url)
     }
-
-    const fileName = url.split('/').pop()
-
-    if (preserveCompression) {
-      // Try different approaches to prevent auto-decompression
-
-      // Approach 1: Try with compress: false and special headers
-      try {
-        const resp = await fetch(url, {
-          compress: false,
-          headers: {
-            'Cache-Control': 'no-transform'
-          }
-        })
-
-
-        const arrayBuffer = await resp.arrayBuffer()
-        const firstBytes = new Uint8Array(arrayBuffer.slice(0, 4))
-        const isGzipped = firstBytes[0] === 0x1f && firstBytes[1] === 0x8b
-
-
-        if (isGzipped) {
-          const blob = new Blob([arrayBuffer], { type: 'application/octet-stream' })
-          const file = new File([blob], fileName, { type: 'application/octet-stream' })
-          this.files.set(cacheKey, file)
-          return file
-        }
-      } catch (error) {
-        console.warn('⚠️ compress: false approach failed:', error.message)
-      }
-
-      // Approach 2: Check for base64 encoding from server
-      const resp = await fetch(url)
-      const spzFormat = resp.headers.get('X-SPZ-Format')
-
-      if (spzFormat === 'base64-gzip') {
-        // Decode base64 to get original gzipped SPZ data
-        const base64Data = await resp.text()
-
-        // Convert base64 to binary data
-        const binaryString = atob(base64Data)
-        const bytes = new Uint8Array(binaryString.length)
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i)
-        }
-
-        const blob = new Blob([bytes], { type: 'application/octet-stream' })
-        const file = new File([blob], fileName, { type: 'application/octet-stream' })
-        this.files.set(cacheKey, file)
-        return file
-      } else {
-        // Fallback to normal handling
-        const blob = await resp.blob()
-        const file = new File([blob], fileName, { type: blob.type })
-        this.files.set(cacheKey, file)
-        return file
-      }
-    } else {
-      // Normal fetch for other files
-      const resp = await fetch(url)
-      const blob = await resp.blob()
-      const file = new File([blob], fileName, { type: blob.type })
-      this.files.set(cacheKey, file)
-      return file
-    }
+    const resp = await fetch(url)
+    const blob = await resp.blob()
+    const file = new File([blob], url.split('/').pop(), { type: blob.type })
+    this.files.set(url, file)
+    return file
   }
 
   async load(type, url) {
@@ -209,11 +145,7 @@ export class ClientLoader extends System {
       this.promises.set(key, promise)
       return promise
     }
-    // For SPZ files, use preserveCompression flag to maintain gzip format
-    const loadFileOptions = (type === 'splat' && url.toLowerCase().endsWith('.spz')) ?
-      { preserveCompression: true } : {}
-
-    const promise = this.loadFile(url, loadFileOptions).then(async file => {
+    const promise = this.loadFile(url).then(async file => {
       if (type === 'hdr') {
         const buffer = await file.arrayBuffer()
         const result = this.rgbeLoader.parse(buffer)
@@ -324,118 +256,47 @@ export class ClientLoader extends System {
         return audioBuffer
       }
       if (type === 'splat') {
-        const format = detectSplatFormat(file.name)
-
-        // For SPZ: Use Spark.js native handling
-        if (format === 'spz') {
-          const fileBytes = await file.arrayBuffer()
-
-          const createSplatMesh = async (options = {}) => {
-            const { SplatMesh } = await getSparkModule()
-
-            const blob = new Blob([fileBytes], { type: 'application/octet-stream' })
-            const blobUrl = URL.createObjectURL(blob)
-
-            return new Promise((resolve, reject) => {
-              try {
-                const splatMesh = new SplatMesh({
-                  url: blobUrl,
-                  fileType: 'spz',
-                  lod: true,
-                  onProgress: options.onProgress,
-                  onLoad: (mesh) => {
-                    URL.revokeObjectURL(blobUrl)
-                    resolve(mesh)
-                  }
-                })
-                setTimeout(() => {
-                  if (!splatMesh.isInitialized) {
-                    URL.revokeObjectURL(blobUrl)
-                    resolve(splatMesh)
-                  }
-                }, 30000)
-              } catch (error) {
-                URL.revokeObjectURL(blobUrl)
-                reject(error)
-              }
-            })
-          }
-
-          const splatData = {
-            file,
-            url,
-            fileBytes,
-            size: file.size,
-            format,
-            createSplatMesh,
-            getStats() {
-              return { fileBytes: file.size, format }
-            }
-          }
-          this.results.set(key, splatData)
-          return splatData
-        }
-
-        // For PLY and other formats: Use Spark.js native handling
-        const fileBytes = await file.arrayBuffer()
-
-        const createSplatMesh = async (options = {}) => {
-          const { SplatMesh } = await getSparkModule()
-
-          const blob = new Blob([fileBytes], { type: 'application/octet-stream' })
-          const blobUrl = URL.createObjectURL(blob)
-
-          return new Promise((resolve, reject) => {
-            const sparkFileType = format
-
-            // CRITICAL FIX: Force 10x scale to avoid float precision artifacts (consistent with insert method)
-            const PRECISION_SCALE = 10.0
-
-            const splatMeshOptions = {
-              ...options,
-              url: blobUrl,
-              fileType: sparkFileType,
-              scale: PRECISION_SCALE,
-              lod: true,
-              onLoad: (mesh) => {
-                URL.revokeObjectURL(blobUrl)
-                resolve(mesh)
-              }
-            }
-
-            try {
-              const splatMesh = new SplatMesh(splatMeshOptions)
-              // Fallback timeout if onLoad doesn't fire
-              setTimeout(() => {
-                if (splatMesh.numSplats === 0 && !splatMesh.isInitialized) {
-                  URL.revokeObjectURL(blobUrl)
-                  resolve(splatMesh)
-                }
-              }, 10000)
-            } catch (error) {
-              URL.revokeObjectURL(blobUrl)
-              reject(error)
-            }
-          })
-        }
-
-        const splatData = {
-          file,
-          url,
-          fileBytes,
-          size: file.size,
-          format,
-          createSplatMesh,
-          getStats() {
-            return { fileBytes: file.size, format }
-          }
-        }
-        this.results.set(key, splatData)
-        return splatData
+        return this.createSplatData(key, url, file)
       }
     })
     this.promises.set(key, promise)
     return promise
+  }
+
+  // Shared splat result factory used by both load() and insert().
+  // Spark's SplatMesh consumes fileBytes directly, so no blob URLs are needed.
+  // The mesh's `initialized` promise settles when parsing completes (or rejects on error).
+  async createSplatData(key, url, file) {
+    const format = detectSplatFormat(file.name)
+    const fileBytes = new Uint8Array(await file.arrayBuffer())
+    const splatData = {
+      file,
+      url,
+      fileBytes,
+      size: file.size,
+      format,
+      createSplatMesh: async (options = {}) => {
+        // fileBytes is read via splatData so remove() can actually release the memory
+        if (!splatData.fileBytes) {
+          throw new Error(`[loader] splat data already released: ${url}`)
+        }
+        const { SplatMesh } = await getSparkModule()
+        const splatMesh = new SplatMesh({
+          fileBytes: splatData.fileBytes,
+          fileType: format,
+          fileName: file.name,
+          lod: true,
+          onProgress: options.onProgress,
+        })
+        await splatMesh.initialized
+        return splatMesh
+      },
+      getStats() {
+        return { fileBytes: file.size, format }
+      },
+    }
+    this.results.set(key, splatData)
+    return splatData
   }
 
   insert(type, url, file) {
@@ -555,84 +416,7 @@ export class ClientLoader extends System {
     if (type === 'splat') {
       // Store the file directly for hasFile/getFile to work
       this.files.set(url, file)
-
-      // For splat files, create the same structure as load() method
-      promise = Promise.resolve().then(async () => {
-        const format = detectSplatFormat(file.name)
-
-        // For SPZ: Use fileBytes approach to avoid gzip conflicts
-        if (format === 'spz') {
-          const fileBytes = await file.arrayBuffer()
-
-          const createSplatMesh = async (options = {}) => {
-            const { SplatMesh } = await getSparkModule()
-
-            // CRITICAL FIX: Force 10x scale to avoid float precision artifacts
-            const PRECISION_SCALE = 10.0
-
-            const splatMeshOptions = {
-              fileBytes: fileBytes,
-              fileType: format,
-              fileName: file.name,
-              scale: PRECISION_SCALE,
-              lod: true,
-              ...options
-            }
-
-            return new SplatMesh(splatMeshOptions)
-          }
-
-          const splatData = {
-            file,
-            url,
-            fileBytes,
-            size: file.size,
-            format,
-            createSplatMesh,
-            getStats() {
-              return { fileBytes: file.size, format }
-            }
-          }
-          this.results.set(key, splatData)
-          return splatData
-        }
-
-        // For other formats: Use fileBytes approach
-        const fileBytes = await file.arrayBuffer()
-
-        const createSplatMesh = async (options = {}) => {
-          const { SplatMesh } = await getSparkModule()
-          const PRECISION_SCALE = 10.0
-
-          const splatMeshOptions = {
-            fileBytes: fileBytes,
-            fileType: format,
-            fileName: file.name,
-            scale: PRECISION_SCALE,
-            lod: true,
-            ...options
-          }
-
-          return new SplatMesh(splatMeshOptions)
-        }
-
-        const splatData = {
-          file,
-          url,
-          fileBytes,
-          size: file.size,
-          format,
-          createSplatMesh,
-          getStats() {
-            return {
-              fileBytes: file.size,
-              format
-            }
-          }
-        }
-        this.results.set(key, splatData)
-        return splatData
-      })
+      promise = this.createSplatData(key, url, file)
     }
     this.promises.set(key, promise)
   }

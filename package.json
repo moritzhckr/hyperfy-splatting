@@ -77,6 +77,7 @@
     "yoga-layout": "^3.2.1"
   },
   "devDependencies": {
+    "@babel/core": "^7.29.7",
     "@babel/eslint-parser": "^7.23.10",
     "@babel/preset-react": "^7.23.10",
     "esbuild": "^0.24.0",

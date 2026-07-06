@@ -397,8 +397,8 @@ export class Stage extends System {
     splatMesh.renderOrder = -1000
     this.scene.add(splatMesh)
 
-    // Store reference
-    const id = node.id || `splat_${Date.now()}`
+    // Store reference (mesh uuid avoids collisions when nodes have no id)
+    const id = node.id || splatMesh.uuid
     this.splatMeshes.set(id, splatMesh)
 
     // Apply color/opacity - use already imported THREE
@@ -414,12 +414,7 @@ export class Stage extends System {
   }
 
   // Helper: Create splat handle object
-  _createSplatHandle(splatMesh, { id, srcUrl, removeFromCache = false, loadInterval = null }) {
-    // Store interval ID on the splatMesh for cleanup
-    if (loadInterval) {
-      splatMesh._loadIntervalId = loadInterval
-    }
-
+  _createSplatHandle(splatMesh, { id, srcUrl, removeFromCache = false }) {
     return {
       splatMesh,
       move: (newMatrix) => {
@@ -442,11 +437,6 @@ export class Stage extends System {
       // Spark 2.0: lodSplatScale is global - use world.stage.setLodSplatScale()
       updateLodSplatScale: () => {},
       destroy: () => {
-        // Clean up SOGS load interval if exists
-        if (splatMesh._loadIntervalId) {
-          clearInterval(splatMesh._loadIntervalId)
-          splatMesh._loadIntervalId = null
-        }
         this.scene.remove(splatMesh)
         this.splatMeshes.delete(id)
         splatMesh.dispose?.()
@@ -457,7 +447,7 @@ export class Stage extends System {
     }
   }
 
-  async insertGaussianSplat({ url, node, matrix, color = '#ffffff', opacity = 1.0, splatScale = 1.0, lodSplatScale = 1.0, onProgress = null }) {
+  async insertGaussianSplat({ url, node, matrix, color = '#ffffff', opacity = 1.0, splatScale = 1.0, onProgress = null }) {
     // Only create SplatMesh on client
     if (this.world.network.isServer) {
       return {
@@ -518,20 +508,7 @@ export class Stage extends System {
 
         const id = this._setupSplatMesh(splatMesh, setupOptions)
 
-        // Monitor SOGS loading with cleanup on destroy
-        let loadInterval = null
-        if (!splatMesh.isInitialized) {
-          let loadCheckCount = 0
-          loadInterval = setInterval(() => {
-            loadCheckCount++
-            if (splatMesh.numSplats > 0 || splatMesh.isInitialized || loadCheckCount >= 30) {
-              clearInterval(loadInterval)
-              loadInterval = null
-            }
-          }, 2000)
-        }
-
-        return this._createSplatHandle(splatMesh, { id, srcUrl: null, loadInterval })
+        return this._createSplatHandle(splatMesh, { id, srcUrl: null })
       }
 
       // All other formats: Load via Hyperfy's asset system
@@ -598,11 +575,6 @@ export class Stage extends System {
     this.models.clear()
     // Clean up splat meshes
     for (const [_id, splatMesh] of this.splatMeshes) {
-      // Clear any associated intervals
-      if (splatMesh._loadIntervalId) {
-        clearInterval(splatMesh._loadIntervalId)
-        splatMesh._loadIntervalId = null
-      }
       this.scene.remove(splatMesh)
       if (splatMesh.dispose) {
         splatMesh.dispose()

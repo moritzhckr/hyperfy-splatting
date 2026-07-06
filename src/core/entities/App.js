@@ -95,8 +95,6 @@ export class App extends Entity {
               src: blueprint.model,
               splatScale: 1.0,
               opacity: 1.0,
-              sphericalHarmonics: true,
-              sortMode: 'auto'
             })
           } else {
             // regular GLB/VRM model
